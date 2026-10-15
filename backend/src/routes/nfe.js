@@ -1,0 +1,11 @@
+﻿const router = require("express").Router();
+const { auth } = require("../middleware/auth");
+const ctrl = require("../controllers/nfeController");
+router.get("/", auth, ctrl.listar);
+router.get("/:id/xml", auth, ctrl.xml);
+router.get("/:id/pdf", auth, ctrl.pdf);
+router.post("/:id/sincronizar", auth, ctrl.sincronizar);
+router.get("/:id", auth, ctrl.detalhe);
+router.post("/", auth, ctrl.emitir);
+router.post("/:id/cancelar", auth, ctrl.cancelar);
+module.exports = router;

@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>PostoFiscal — Relatório técnico e de custos</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  :root {
+    --ink: #1c2430; --muted: #5b6676; --line: #dfe4ea; --soft: #f4f6f9;
+    --brand: #0f5c8c; --brand-2: #e8f1f8; --ok: #1f7a4d; --ok-bg: #e7f4ec;
+    --warn: #9a5b00; --warn-bg: #fdf3e2; --bad: #a3262a; --bad-bg: #fbe9e9;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: var(--ink); font-size: 10.2pt; line-height: 1.5; margin: 0; }
+  h1, h2, h3 { line-height: 1.2; margin: 0; }
+  h2 { font-size: 15pt; color: var(--brand); margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--brand-2); }
+  h3 { font-size: 11.5pt; margin: 16px 0 6px; }
+  p { margin: 0 0 8px; }
+  section { margin-bottom: 18px; }
+  .page-break { break-before: page; }
+  .avoid { break-inside: avoid; }
+  code { font-family: Consolas, monospace; font-size: 9pt; background: var(--soft); padding: 1px 4px; border-radius: 3px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 9.3pt; break-inside: avoid; }
+  th { background: var(--brand); color: #fff; text-align: left; padding: 6px 8px; font-weight: 600; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .tot td { font-weight: 700; background: var(--brand-2) !important; }
+  ul { margin: 0 0 8px; padding-left: 18px; }
+  li { margin-bottom: 3px; }
+  .small { font-size: 8.6pt; color: var(--muted); }
+
+  /* Capa */
+  .cover { height: 255mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover-top { background: var(--brand); color: #fff; padding: 34px 32px; border-radius: 10px; }
+  .cover-top .tag { font-size: 9pt; letter-spacing: .12em; text-transform: uppercase; opacity: .8; }
+  .cover-top h1 { font-size: 30pt; margin: 10px 0 6px; }
+  .cover-top .sub { font-size: 13pt; opacity: .92; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 22px; }
+  .kpi { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .kpi .v { font-size: 17pt; font-weight: 700; color: var(--brand); }
+  .kpi .l { font-size: 8.8pt; color: var(--muted); }
+  .verdict { border-left: 5px solid var(--warn); background: var(--warn-bg); padding: 14px 16px; border-radius: 6px; margin-top: 18px; }
+  .verdict b { color: var(--warn); }
+  .cover-foot { font-size: 9pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+
+  .callout { border-radius: 6px; padding: 10px 12px; margin: 8px 0 12px; break-inside: avoid; }
+  .callout.info { background: var(--brand-2); border-left: 4px solid var(--brand); }
+  .callout.ok { background: var(--ok-bg); border-left: 4px solid var(--ok); }
+  .callout.warn { background: var(--warn-bg); border-left: 4px solid var(--warn); }
+  .callout.bad { background: var(--bad-bg); border-left: 4px solid var(--bad); }
+
+  .pill { display: inline-block; font-size: 8pt; font-weight: 700; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
+  .p-ok { background: var(--ok-bg); color: var(--ok); }
+  .p-warn { background: var(--warn-bg); color: var(--warn); }
+  .p-bad { background: var(--bad-bg); color: var(--bad); }
+  .p-info { background: var(--brand-2); color: var(--brand); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; break-inside: avoid; }
+  .card h3 { margin-top: 0; }
+  svg text { font-family: "Segoe UI", Arial, sans-serif; }
+  .step { display: grid; grid-template-columns: 26px 1fr; gap: 8px; margin-bottom: 7px; break-inside: avoid; }
+  .step .n { width: 22px; height: 22px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 700; font-size: 9pt; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<!-- ============ CAPA ============ -->
+<div class="cover">
+  <div>
+    <div class="cover-top">
+      <div class="tag">Relatório técnico · custos · pendências</div>
+      <h1>PostoFiscal</h1>
+      <div class="sub">Emissão de NF-e, CT-e, MDF-e e CIOT para posto de combustível e transporte, com transmissão real à SEFAZ pela Focus NFe e CIOT direto na ANTT</div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="v">4</div><div class="l">documentos fiscais suportados (NF-e, CT-e, MDF-e, CIOT)</div></div>
+      <div class="kpi"><div class="v">~R$ 115–210</div><div class="l">custo mensal estimado em operação (Focus + certificado)</div></div>
+      <div class="kpi"><div class="v">4 suítes</div><div class="l">de testes automatizados, todas passando</div></div>
+    </div>
+
+    <div class="verdict">
+      <b>Situação em 14/10/2026:</b> o código de emissão real está pronto e testado contra um servidor que imita a Focus NFe. <b>Nenhuma nota foi enviada à SEFAZ ou à ANTT de verdade ainda.</b> Para isso faltam três coisas que só o dono do negócio pode providenciar: certificado digital A1 válido do próprio CNPJ, conta na Focus NFe e dados reais da empresa (PB).
+    </div>
+
+    <h3 style="margin-top:22px">Conteúdo</h3>
+    <ol class="small" style="font-size:9.6pt;color:var(--ink)">
+      <li>Como a Focus NFe funciona</li>
+      <li>Custos: Focus, certificado, ANTT, hospedagem e simulações</li>
+      <li>Como o sistema foi feito</li>
+      <li>Como uma nota é emitida, passo a passo</li>
+      <li>CIOT direto na ANTT (e o que foi aproveitado do projeto Delphi)</li>
+      <li>Testes, revisão e segurança</li>
+      <li>O que falta, em ordem de prioridade</li>
+      <li>Riscos e pontos de atenção</li>
+      <li>Fontes</li>
+    </ol>
+  </div>
+  <div class="cover-foot">Gerado em 14/10/2026 · Valores de preço consultados nas páginas públicas dos fornecedores na mesma data e sujeitos a alteração · Projeto em <code>Gerente e DLLS/sistema-fiscal</code></div>
+</div>
+
+<!-- ============ 1. FOCUS ============ -->
+<section class="page-break">
+  <h2>1. Como a Focus NFe funciona</h2>
+  <p>A Focus NFe é uma <b>API intermediária</b>. Em vez de o PostoFiscal falar direto com cada SEFAZ (protocolo SOAP, assinatura digital do XML, regras diferentes por estado, contingência), ele manda um <b>JSON simples</b> para a Focus. A Focus monta o XML oficial, <b>assina com o certificado A1 da empresa</b> (que fica guardado no painel dela) e transmite para a SEFAZ da Paraíba ou para o ambiente nacional.</p>
+
+  <svg viewBox="0 0 720 210" width="100%" role="img" aria-label="Fluxo: PostoFiscal envia JSON à Focus, que assina e transmite à SEFAZ">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#0f5c8c"/></marker>
+      <marker id="ag" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f7a4d"/></marker>
+    </defs>
+    <rect x="10" y="40" width="190" height="110" rx="10" fill="#e8f1f8" stroke="#0f5c8c"/>
+    <text x="105" y="70" text-anchor="middle" font-size="14" font-weight="700" fill="#0f5c8c">PostoFiscal</text>
+    <text x="105" y="92" text-anchor="middle" font-size="11" fill="#1c2430">seu servidor (Node.js)</text>
+    <text x="105" y="110" text-anchor="middle" font-size="11" fill="#1c2430">guarda notas, clientes,</text>
+    <text x="105" y="126" text-anchor="middle" font-size="11" fill="#1c2430">usuários e auditoria</text>
+
+    <rect x="265" y="40" width="190" height="110" rx="10" fill="#fdf3e2" stroke="#9a5b00"/>
+    <text x="360" y="70" text-anchor="middle" font-size="14" font-weight="700" fill="#9a5b00">Focus NFe</text>
+    <text x="360" y="92" text-anchor="middle" font-size="11" fill="#1c2430">monta XML oficial</text>
+    <text x="360" y="110" text-anchor="middle" font-size="11" fill="#1c2430">assina com certificado A1</text>
+    <text x="360" y="126" text-anchor="middle" font-size="11" fill="#1c2430">gera DANFE / DACTE / DAMDFE</text>
+
+    <rect x="520" y="40" width="190" height="110" rx="10" fill="#e7f4ec" stroke="#1f7a4d"/>
+    <text x="615" y="70" text-anchor="middle" font-size="14" font-weight="700" fill="#1f7a4d">SEFAZ</text>
+    <text x="615" y="92" text-anchor="middle" font-size="11" fill="#1c2430">valida as regras fiscais</text>
+    <text x="615" y="110" text-anchor="middle" font-size="11" fill="#1c2430">autoriza ou rejeita</text>
+    <text x="615" y="126" text-anchor="middle" font-size="11" fill="#1c2430">devolve protocolo</text>
+
+    <line x1="200" y1="78" x2="262" y2="78" stroke="#0f5c8c" stroke-width="2" marker-end="url(#ar)"/>
+    <text x="231" y="70" text-anchor="middle" font-size="9.5" fill="#0f5c8c">JSON + token</text>
+    <line x1="455" y1="78" x2="517" y2="78" stroke="#0f5c8c" stroke-width="2" marker-end="url(#ar)"/>
+    <text x="486" y="70" text-anchor="middle" font-size="9.5" fill="#0f5c8c">XML assinado</text>
+    <line x1="517" y1="118" x2="458" y2="118" stroke="#1f7a4d" stroke-width="2" marker-end="url(#ag)"/>
+    <text x="486" y="136" text-anchor="middle" font-size="9.5" fill="#1f7a4d">resultado</text>
+    <line x1="262" y1="118" x2="203" y2="118" stroke="#1f7a4d" stroke-width="2" marker-end="url(#ag)"/>
+    <text x="231" y="136" text-anchor="middle" font-size="9.5" fill="#1f7a4d">status + XML + PDF</text>
+
+    <text x="360" y="185" text-anchor="middle" font-size="10.5" fill="#5b6676">A comunicação PostoFiscal ↔ Focus é HTTPS com o token da empresa como usuário (HTTP Basic). O certificado nunca passa pelo PostoFiscal.</text>
+  </svg>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>O que a Focus faz por nós</h3>
+      <ul>
+        <li>Assinatura digital XML com o certificado A1</li>
+        <li>Comunicação com a SEFAZ de cada estado</li>
+        <li>Contingência automática (SVC) quando a SEFAZ cai</li>
+        <li>Numeração automática por série, sem furo</li>
+        <li>Geração do PDF (DANFE, DACTE, DAMDFE)</li>
+        <li>Guarda do XML autorizado</li>
+        <li>Acompanha mudanças de layout (ex.: IBS/CBS da reforma tributária)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>O que continua com o PostoFiscal</h3>
+      <ul>
+        <li>Telas, login, cadastro de clientes e produtos</li>
+        <li>Regras do negócio (CST, alíquotas, CFOP, ANP)</li>
+        <li>Guarda local das notas, XML e auditoria</li>
+        <li>Acompanhar o status até a SEFAZ responder</li>
+        <li>Cancelamento e encerramento (pedidos via Focus)</li>
+        <li>CIOT, que a Focus <b>não</b> emite: vai direto à ANTT</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Dois ambientes, dois tokens</h3>
+  <table>
+    <tr><th>Ambiente</th><th>Endereço</th><th>Efeito</th><th>Uso</th></tr>
+    <tr><td><b>Homologação</b></td><td><code>homologacao.focusnfe.com.br</code></td><td>Sem validade fiscal; a SEFAZ valida igual à produção</td><td>Testes. Começamos aqui.</td></tr>
+    <tr><td><b>Produção</b></td><td><code>api.focusnfe.com.br</code></td><td>Nota válida, gera imposto</td><td>Só depois da homologação aprovada</td></tr>
+  </table>
+  <p>No PostoFiscal a troca é uma linha no arquivo <code>backend/.env</code>: <code>FOCUS_AMBIENTE=homologacao</code> ou <code>producao</code>, com o token correspondente em <code>FOCUS_TOKEN</code>.</p>
+
+  <div class="callout info"><b>Emissão assíncrona.</b> A Focus responde "recebido" na hora e a SEFAZ responde segundos depois. Por isso a nota aparece primeiro como <b>processando</b>. O PostoFiscal consulta a Focus a cada 15 segundos (configurável) e, quando autorizada, grava número, chave de 44 dígitos, protocolo, XML oficial e link do PDF.</div>
+</section>
+
+<!-- ============ 2. CUSTOS ============ -->
+<section class="page-break">
+  <h2>2. Custos</h2>
+
+  <h3>2.1 Planos da Focus NFe (página oficial, consultada em 14/10/2026)</h3>
+  <table>
+    <tr><th>Plano</th><th class="num">Mensalidade</th><th>CNPJs</th><th>Documentos inclusos</th><th class="num">Documento extra</th><th>Indicado para</th></tr>
+    <tr><td><b>Solo</b> <span class="pill p-ok">recomendado</span></td><td class="num">R$ 94,90</td><td>1</td><td>100</td><td class="num">R$ 0,11</td><td>Um posto, um CNPJ</td></tr>
+    <tr><td><b>Start</b></td><td class="num">R$ 119,90</td><td>3 (+R$ 39,90 cada extra)</td><td>100 por CNPJ</td><td class="num">R$ 0,11</td><td>Rede pequena / transportadora separada</td></tr>
+    <tr><td><b>Growth</b></td><td class="num">R$ 572,00</td><td>Ilimitados</td><td>4.000</td><td class="num">R$ 0,125</td><td>Revenda do sistema para vários clientes</td></tr>
+    <tr><td><b>Retail</b> (NFC-e)</td><td class="num">R$ 62,90</td><td>1</td><td>500 NFC-e + 100 NF-e</td><td class="num">R$ 0,055 NFC-e · R$ 0,16 NF-e</td><td>Cupom de bomba (ver seção 8)</td></tr>
+    <tr><td><b>Enterprise</b></td><td class="num">sob consulta</td><td>Ilimitados</td><td>—</td><td class="num">—</td><td>Mais de 50 mil notas/mês</td></tr>
+  </table>
+  <p class="small">Sem taxa de adesão e sem fidelidade, segundo a própria Focus. Período de teste de 30 dias. NF-e, CT-e e MDF-e entram na mesma franquia nos planos Solo/Start/Growth. A Focus informa que "cada documento emitido ou recebido conta como uma unidade". O PostoFiscal não usa a função de notas recebidas, então só as emitidas contam. <b>A confirmar com a Focus:</b> se cancelamento, carta de correção e encerramento de MDF-e também consomem franquia.</p>
+
+  <h3>2.2 Outros custos</h3>
+  <table>
+    <tr><th>Item</th><th class="num">Valor</th><th>Frequência</th><th>Observação</th></tr>
+    <tr><td><b>Certificado digital e-CNPJ A1</b></td><td class="num">R$ 180 a R$ 280</td><td>por ano</td><td>Obrigatório. Validade de 12 meses. Usado pela Focus (NF-e/CT-e/MDF-e) e pela ANTT (CIOT). Equivale a ~R$ 15–23/mês.</td></tr>
+    <tr><td><b>Web Service PEF da ANTT (CIOT)</b></td><td class="num">sem tarifa encontrada</td><td>—</td><td>O manual oficial não cita cobrança. Pode exigir habilitação do CNPJ junto à ANTT. A confirmar.</td></tr>
+    <tr><td><b>Hospedagem</b> — no PC do posto</td><td class="num">R$ 0</td><td>—</td><td>Como roda hoje. O PC precisa ficar ligado; sem backup automático.</td></tr>
+    <tr><td><b>Hospedagem</b> — servidor na nuvem (VPS)</td><td class="num">~R$ 30 a R$ 80</td><td>por mês</td><td><i>Estimativa de mercado, não cotada.</i> Recomendado para acesso de fora da rede, HTTPS e backup.</td></tr>
+    <tr><td><b>Bibliotecas do sistema</b></td><td class="num">R$ 0</td><td>—</td><td>Todas de código aberto (Express, bcrypt, JWT...).</td></tr>
+  </table>
+
+  <h3>2.3 Simulação mensal (plano Solo + certificado diluído)</h3>
+  <table>
+    <tr><th>Cenário</th><th class="num">Documentos/mês</th><th class="num">Focus</th><th class="num">Certificado (mês)</th><th class="num">Total/mês</th><th class="num">Total/ano</th></tr>
+    <tr><td>Pequeno — poucas NF-e para empresas</td><td class="num">100</td><td class="num">R$ 94,90</td><td class="num">R$ 19,00</td><td class="num">R$ 113,90</td><td class="num">R$ 1.367</td></tr>
+    <tr><td>Médio — NF-e + viagens com CT-e/MDF-e</td><td class="num">400</td><td class="num">R$ 127,90</td><td class="num">R$ 19,00</td><td class="num">R$ 146,90</td><td class="num">R$ 1.763</td></tr>
+    <tr><td>Movimentado</td><td class="num">1.000</td><td class="num">R$ 193,90</td><td class="num">R$ 19,00</td><td class="num">R$ 212,90</td><td class="num">R$ 2.555</td></tr>
+  </table>
+  <p class="small">Conta: R$ 94,90 + (documentos − 100) × R$ 0,11. Certificado a R$ 228/ano (meio da faixa). Sem hospedagem em nuvem. Uma viagem típica gera 3 documentos (NF-e da carga + CT-e + MDF-e) e o CIOT, que não passa pela Focus.</p>
+
+  <div class="callout ok"><b>Comparação:</b> fazer a integração direta com a SEFAZ (sem Focus) eliminaria a mensalidade, mas exigiria implementar assinatura XML, SOAP com certificado por estado, contingência e manutenção a cada nota técnica nova. Para um único posto, a mensalidade da Focus custa menos que o tempo de manutenção.</div>
+</section>
+
+<!-- ============ 3. COMO FOI FEITO ============ -->
+<section class="page-break">
+  <h2>3. Como o sistema foi feito</h2>
+  <p>O PostoFiscal foi escrito do zero, em JavaScript, sem reaproveitar o código do sistema gerencial descompilado que está na mesma pasta. São cerca de <b>4.200 linhas</b> de código de aplicação e <b>1.700 linhas</b> de testes.</p>
+
+  <svg viewBox="0 0 720 300" width="100%" role="img" aria-label="Arquitetura: navegador, servidor Node com módulos, banco local e serviços externos">
+    <defs><marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5b6676"/></marker></defs>
+    <rect x="10" y="20" width="150" height="70" rx="8" fill="#f4f6f9" stroke="#5b6676"/>
+    <text x="85" y="48" text-anchor="middle" font-size="12.5" font-weight="700">Navegador</text>
+    <text x="85" y="66" text-anchor="middle" font-size="10">PC, celular ou tablet</text>
+    <text x="85" y="80" text-anchor="middle" font-size="10">da rede local</text>
+
+    <rect x="200" y="10" width="320" height="230" rx="10" fill="#e8f1f8" stroke="#0f5c8c"/>
+    <text x="360" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#0f5c8c">Servidor Node.js + Express (porta 3001)</text>
+    <rect x="215" y="45" width="140" height="40" rx="6" fill="#fff" stroke="#9fb6c9"/><text x="285" y="70" text-anchor="middle" font-size="10.5">Login JWT + bcrypt</text>
+    <rect x="365" y="45" width="140" height="40" rx="6" fill="#fff" stroke="#9fb6c9"/><text x="435" y="70" text-anchor="middle" font-size="10.5">Cadastros</text>
+    <rect x="215" y="95" width="140" height="40" rx="6" fill="#fff" stroke="#9fb6c9"/><text x="285" y="120" text-anchor="middle" font-size="10.5">NF-e · CT-e · MDF-e</text>
+    <rect x="365" y="95" width="140" height="40" rx="6" fill="#fff" stroke="#9fb6c9"/><text x="435" y="120" text-anchor="middle" font-size="10.5">CIOT</text>
+    <rect x="215" y="145" width="140" height="40" rx="6" fill="#fdf3e2" stroke="#9a5b00"/><text x="285" y="164" text-anchor="middle" font-size="10.5">emissor.js</text><text x="285" y="178" text-anchor="middle" font-size="9">local ou Focus</text>
+    <rect x="365" y="145" width="140" height="40" rx="6" fill="#fdf3e2" stroke="#9a5b00"/><text x="435" y="164" text-anchor="middle" font-size="10.5">antt.js</text><text x="435" y="178" text-anchor="middle" font-size="9">local ou ANTT</text>
+    <rect x="215" y="195" width="290" height="34" rx="6" fill="#fff" stroke="#9fb6c9"/><text x="360" y="216" text-anchor="middle" font-size="10.5">Sincronizador (a cada 15 s) · Auditoria · Limite de tentativas</text>
+
+    <rect x="560" y="20" width="150" height="60" rx="8" fill="#fdf3e2" stroke="#9a5b00"/><text x="635" y="46" text-anchor="middle" font-size="12" font-weight="700" fill="#9a5b00">Focus NFe</text><text x="635" y="64" text-anchor="middle" font-size="10">→ SEFAZ</text>
+    <rect x="560" y="100" width="150" height="60" rx="8" fill="#e7f4ec" stroke="#1f7a4d"/><text x="635" y="126" text-anchor="middle" font-size="12" font-weight="700" fill="#1f7a4d">ANTT · PEF</text><text x="635" y="144" text-anchor="middle" font-size="10">CIOT (mTLS + A1)</text>
+    <rect x="560" y="180" width="150" height="60" rx="8" fill="#f4f6f9" stroke="#5b6676"/><text x="635" y="206" text-anchor="middle" font-size="12" font-weight="700">fiscal.json</text><text x="635" y="224" text-anchor="middle" font-size="10">banco local (arquivo)</text>
+
+    <line x1="160" y1="55" x2="197" y2="55" stroke="#5b6676" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="520" y1="50" x2="557" y2="50" stroke="#9a5b00" stroke-width="1.6" marker-end="url(#a2)"/>
+    <line x1="520" y1="130" x2="557" y2="130" stroke="#1f7a4d" stroke-width="1.6" marker-end="url(#a2)"/>
+    <line x1="520" y1="210" x2="557" y2="210" stroke="#5b6676" stroke-width="1.6" marker-end="url(#a2)"/>
+    <text x="360" y="275" text-anchor="middle" font-size="10.5" fill="#5b6676">O mesmo servidor entrega as telas (frontend) e a API. Qualquer aparelho da rede local acessa pelo IP do PC.</text>
+  </svg>
+
+  <h3>Tecnologias</h3>
+  <table>
+    <tr><th>Camada</th><th>Tecnologia</th><th>Por quê</th></tr>
+    <tr><td>Servidor</td><td>Node.js 24 + Express 4</td><td>Leve, roda em qualquer PC Windows, sem instalar banco</td></tr>
+    <tr><td>Telas</td><td>HTML + CSS + JavaScript puro</td><td>Sem etapa de build; abre em qualquer navegador</td></tr>
+    <tr><td>Banco</td><td>Arquivo JSON (<code>backend/data/fiscal.json</code>) com gravação atômica</td><td>Zero instalação. Limite discutido na seção 8.</td></tr>
+    <tr><td>Segurança</td><td>bcrypt, JWT, Helmet, CORS, limite de tentativas</td><td>Senha nunca fica em texto; sessão expira; força bruta bloqueada</td></tr>
+    <tr><td>Integrações</td><td><code>fetch</code> nativo (Focus) e <code>https</code> com certificado cliente (ANTT)</td><td>Nenhuma dependência extra paga</td></tr>
+  </table>
+
+  <h3>APIs que o sistema consome</h3>
+  <table>
+    <tr><th>Serviço</th><th>Operações usadas</th><th>Autenticação</th></tr>
+    <tr><td><b>Focus NFe</b> <code>/v2/nfe</code>, <code>/v2/cte</code>, <code>/v2/mdfe</code></td><td>Emitir (POST), consultar (GET), cancelar (DELETE com justificativa), encerrar MDF-e, baixar XML e PDF</td><td>Token da empresa via HTTP Basic</td></tr>
+    <tr><td><b>ANTT PEF</b> <code>appservices.antt.gov.br/pefServices/api</code></td><td>Declarar, cancelar, encerrar e consultar operação; situação do transportador; frota</td><td>Certificado A1 (TLS mútuo)</td></tr>
+  </table>
+
+  <h3>API que o sistema oferece (40 rotas)</h3>
+  <table>
+    <tr><th>Grupo</th><th>Rotas principais</th></tr>
+    <tr><td>Acesso</td><td><code>POST /api/auth/login</code> · <code>GET /me</code> · <code>POST /senha</code></td></tr>
+    <tr><td>Cadastros</td><td>empresa, clientes, produtos, painel (dashboard)</td></tr>
+    <tr><td>NF-e / CT-e</td><td>listar, detalhe, emitir, cancelar, <code>/xml</code>, <code>/pdf</code>, <code>/sincronizar</code></td></tr>
+    <tr><td>MDF-e</td><td>as mesmas + <code>/encerrar</code></td></tr>
+    <tr><td>CIOT</td><td>listar, emitir, cancelar, encerrar, <code>/consulta</code>, <code>/transportador</code>, <code>/frota</code></td></tr>
+  </table>
+  <p class="small">Todas as rotas, exceto login e verificação de funcionamento, exigem token. Cada usuário só enxerga documentos da própria empresa.</p>
+</section>
+
+<!-- ============ 4. FLUXO ============ -->
+<section class="page-break">
+  <h2>4. Como uma nota é emitida, passo a passo</h2>
+  <div class="step"><div class="n">1</div><div>O operador preenche a NF-e na tela (cliente cadastrado, produtos, litros, preço, forma de pagamento).</div></div>
+  <div class="step"><div class="n">2</div><div>O servidor valida: cliente com endereço e código IBGE, quantidades numéricas, alíquotas, CST. Erro aqui volta na hora, sem gastar franquia da Focus.</div></div>
+  <div class="step"><div class="n">3</div><div>A nota é gravada como <span class="pill p-info">processando</span> <b>antes</b> do envio. Se a internet cair no meio, nada se perde.</div></div>
+  <div class="step"><div class="n">4</div><div>O JSON vai para a Focus usando o id interno da nota como referência única. Reenviar a mesma referência não duplica a nota.</div></div>
+  <div class="step"><div class="n">5</div><div>A Focus assina e transmite. A SEFAZ responde em segundos.</div></div>
+  <div class="step"><div class="n">6</div><div>O sincronizador consulta a Focus e grava o resultado: <span class="pill p-ok">autorizada</span> com chave, número, protocolo, XML oficial e PDF; ou <span class="pill p-bad">rejeitada</span> com o código e motivo da SEFAZ para corrigir.</div></div>
+  <div class="step"><div class="n">7</div><div>Depois: cancelar (até 24 h, justificativa de 15 a 255 caracteres), ou, no MDF-e, encerrar ao fim da viagem.</div></div>
+
+  <h3>Proteções do fluxo</h3>
+  <table>
+    <tr><th>Situação</th><th>O que o sistema faz</th></tr>
+    <tr><td>Internet ou Focus fora do ar no envio</td><td>Mantém "processando" e tenta consultar depois; não marca como rejeitada à toa</td></tr>
+    <tr><td>Focus pede para esperar (limite de requisições)</td><td>Trata como temporário, não como rejeição</td></tr>
+    <tr><td>Consulta chega antes do envio terminar</td><td>Ignora; só considera "não recebida" depois de 5 minutos</td></tr>
+    <tr><td>Resposta atrasada depois de um cancelamento</td><td>Nunca volta uma nota cancelada/encerrada para autorizada</td></tr>
+    <tr><td>MDF-e rejeitado com CIOT vinculado</td><td>Libera o CIOT para outro manifesto</td></tr>
+  </table>
+
+  <h3>Modo local (simulado)</h3>
+  <p>Sem token configurado, o sistema funciona em <b>modo local</b>: aprova na hora, gera chave e XML, mas <b>sem valor fiscal</b>. Serve para treinar o operador e testar telas. A tela inicial do servidor informa qual modo está ativo.</p>
+</section>
+
+<!-- ============ 5. CIOT ============ -->
+<section>
+  <h2>5. CIOT direto na ANTT</h2>
+  <p>A partir de 24/05/2026 o CIOT ficou obrigatório para o transporte rodoviário remunerado de cargas. A Focus não emite CIOT. O PostoFiscal fala direto com o Web Service <b>PEF</b> da ANTT, seguindo o manual oficial <b>DCS PEF v1.1</b>, usando o certificado A1 como identificação (TLS mútuo).</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Aproveitado do projeto Delphi</h3>
+      <ul>
+        <li>Endereços oficiais de homologação e produção</li>
+        <li>Nomes dos campos das operações (declarar, cancelar, encerrar, consultar)</li>
+        <li>Consultas de transportador e frota</li>
+        <li>Regra de completar RNTRC com zero à esquerda</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Descartado</h3>
+      <ul>
+        <li>Gerador de número em servidor particular na Amazon com <b>senha fixa no código</b> (do autor; usar seria indevido e enviaria seu CNPJ a terceiro)</li>
+        <li>Valores fixos de teste (placa ZZZ0000, frete 100, município 9999999)</li>
+        <li>Dependência de componentes Delphi/ACBr</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout warn"><b>Ponto em aberto:</b> o manual exige um "Código Identificador da Operação" de 12 caracteres, único no ano, e menciona "ID da administradora e DV" (regra B16) sem explicar como gerar. Hoje o sistema gera um número sequencial por empresa e ano. Só a homologação da ANTT confirma se é aceito. Se a ANTT exigir um gerador próprio, é uma troca localizada em <code>antt.js</code>.</div>
+  <p>Se a resposta da ANTT se perder, o CIOT fica <b>pendente</b> com o número reservado, e a consulta recupera o resultado sem declarar outro (evita CIOT duplicado). Sem certificado configurado, o pedido é recusado antes de qualquer envio.</p>
+</section>
+
+<!-- ============ 6. TESTES ============ -->
+<section class="page-break">
+  <h2>6. Testes, revisão e segurança</h2>
+  <table>
+    <tr><th>Suíte</th><th>O que verifica</th><th class="num">Resultado</th></tr>
+    <tr><td><code>npm test</code></td><td>Fluxo completo em modo local: login, cadastros, emissão, chave mod-11, XML, cancelamento, numeração, CIOT, permissões</td><td class="num"><span class="pill p-ok">42/42</span></td></tr>
+    <tr><td><code>npm run test:focus</code></td><td>Emissão real contra um servidor que imita a Focus: autorização, rejeição, cancelamento, encerramento, PDF, queda de rede</td><td class="num"><span class="pill p-ok">17/17</span></td></tr>
+    <tr><td><code>npm run test:emissor</code></td><td>Corridas entre envio e consulta, respostas atrasadas, liberação de CIOT, limites temporários</td><td class="num"><span class="pill p-ok">9/9</span></td></tr>
+    <tr><td><code>npm run test:antt</code></td><td>Campos e tamanhos do manual da ANTT, fluxo pendente/emitido/rejeitado</td><td class="num"><span class="pill p-ok">7 grupos</span></td></tr>
+  </table>
+  <p>Comando único: <code>npm run test:all</code>.</p>
+
+  <h3>Revisão de código independente</h3>
+  <p>Uma revisão focada em fraude, perda de nota e vazamento encontrou 6 problemas. Todos foram corrigidos e cobertos por teste:</p>
+  <table>
+    <tr><th>Gravidade</th><th>Problema</th><th>Situação</th></tr>
+    <tr><td><span class="pill p-bad">alta</span></td><td>Nome de cliente malicioso podia executar código na tela de outros usuários (XSS)</td><td><span class="pill p-ok">corrigido</span></td></tr>
+    <tr><td><span class="pill p-bad">alta</span></td><td>Nota autorizada podia ser marcada como rejeitada e reemitida (duplicidade)</td><td><span class="pill p-ok">corrigido</span></td></tr>
+    <tr><td><span class="pill p-warn">média</span></td><td>Resposta atrasada podia "descancelar" uma nota</td><td><span class="pill p-ok">corrigido</span></td></tr>
+    <tr><td><span class="pill p-warn">média</span></td><td>CIOT preso a MDF-e rejeitado</td><td><span class="pill p-ok">corrigido</span></td></tr>
+    <tr><td><span class="pill p-warn">média</span></td><td>CIOT duplicado se a resposta da ANTT se perdesse</td><td><span class="pill p-ok">corrigido</span></td></tr>
+    <tr><td><span class="pill p-info">baixa</span></td><td>Token da Focus podia ir para um endereço parecido com o da Focus</td><td><span class="pill p-ok">corrigido</span></td></tr>
+  </table>
+  <div class="callout warn"><b>Limite dos testes:</b> nada foi testado contra a SEFAZ ou a ANTT reais, e as telas novas ainda não foram usadas no navegador. Rejeições de regra fiscal só aparecem na homologação real.</div>
+</section>
+
+<!-- ============ 7. O QUE FALTA ============ -->
+<section>
+  <h2>7. O que falta, em ordem de prioridade</h2>
+  <table>
+    <tr><th>#</th><th>Item</th><th>Quem</th><th>Custo</th></tr>
+    <tr><td>1</td><td><b>Comprar certificado e-CNPJ A1</b> do próprio CNPJ do posto. O vencido não serve. Certificado de cliente só com autorização por escrito.</td><td>Dono</td><td>R$ 180–280/ano</td></tr>
+    <tr><td>2</td><td><b>Criar conta na Focus NFe</b>, cadastrar a empresa, subir o certificado, copiar o token de homologação</td><td>Dono</td><td>30 dias grátis, depois a partir de R$ 94,90/mês</td></tr>
+    <tr><td>3</td><td><b>Trocar os dados da empresa de exemplo</b> (hoje SP, CNPJ fictício) pelos reais da Paraíba: CNPJ, IE, endereço, código IBGE, regime tributário</td><td>Dono + sistema</td><td>—</td></tr>
+    <tr><td>4</td><td><b>Cadastrar clientes</b> com endereço completo e código IBGE do município</td><td>Operador</td><td>—</td></tr>
+    <tr><td>5</td><td><b>Validar a tributação com o contador:</b> CST de ICMS de combustível (60 ou 61 monofásico), PIS/COFINS 04, CFOP, alíquota de CT-e em PB</td><td>Contador</td><td>—</td></tr>
+    <tr><td>6</td><td><b>Emitir em homologação</b> e corrigir as rejeições que a SEFAZ apontar</td><td>Sistema</td><td>—</td></tr>
+    <tr><td>7</td><td><b>Configurar o CIOT na ANTT</b>: certificado no servidor, veículo na frota RNTRC, confirmar habilitação e formato do número</td><td>Dono + sistema</td><td>a confirmar</td></tr>
+    <tr><td>8</td><td><b>Testar todas as telas</b> no navegador (formulários de CT-e, MDF-e, cancelamento com justificativa)</td><td>Operador</td><td>—</td></tr>
+    <tr><td>9</td><td><b>Trocar a senha do admin</b> e a chave <code>JWT_SECRET</code> do <code>.env</code></td><td>Dono</td><td>—</td></tr>
+    <tr><td>10</td><td><b>Backup diário</b> de <code>backend/data/</code>. A lei exige guardar os XML por 5 anos.</td><td>Sistema</td><td>—</td></tr>
+    <tr><td>11</td><td>Só então: <code>FOCUS_AMBIENTE=producao</code> com o token de produção</td><td>Dono</td><td>—</td></tr>
+  </table>
+</section>
+
+<!-- ============ 8. RISCOS ============ -->
+<section class="page-break">
+  <h2>8. Riscos e pontos de atenção</h2>
+
+  <div class="callout bad"><b>NFC-e (cupom da bomba) não está no sistema.</b> A venda ao consumidor final no posto normalmente sai em <b>NFC-e (modelo 65)</b>, não em NF-e (modelo 55). O PostoFiscal hoje emite NF-e 55, CT-e, MDF-e e CIOT, o que atende vendas para empresas e o transporte. Se a ideia é emitir o cupom de cada abastecimento, falta um módulo de NFC-e (a Focus suporta, com o plano Retail a partir de R$ 62,90/mês e 500 NFC-e). Precisa ser decidido.</div>
+
+  <div class="callout warn"><b>Banco em arquivo JSON.</b> Simples e sem instalação, mas grava o arquivo inteiro a cada alteração e guarda os XML dentro dele. Serve para um posto com poucos usuários. Com milhares de notas por mês ou vários PCs gravando ao mesmo tempo, o recomendado é migrar para SQLite ou PostgreSQL (o esquema já existe em <code>schema.sql</code>).</div>
+
+  <div class="callout warn"><b>Reforma tributária (IBS/CBS).</b> Os layouts de 2026 trazem campos novos de IBS/CBS. A Focus acompanha os layouts, mas os valores e códigos de classificação precisam vir do sistema conforme orientação do contador. A homologação vai mostrar se a SEFAZ-PB já exige.</div>
+
+  <div class="callout warn"><b>Dependência da Focus.</b> Se a Focus parar, a emissão para. Mitigação: a Focus tem contingência própria; o sistema guarda tudo localmente e a troca de provedor fica concentrada em <code>focus.js</code> e <code>focusPayload.js</code>.</div>
+
+  <div class="callout info"><b>Servidor no PC do posto.</b> Se o PC desligar, ninguém emite e o sincronizador para (retoma ao religar). Para acesso de fora do posto, usar servidor em nuvem com HTTPS, nunca abrir a porta 3001 direto para a internet.</div>
+
+  <div class="callout info"><b>Certificado vence todo ano.</b> Sem renovação, SEFAZ e ANTT recusam tudo. Anotar a data de vencimento e renovar com 30 dias de antecedência (precisa atualizar no painel da Focus e no servidor para o CIOT).</div>
+</section>
+
+<!-- ============ 9. FONTES ============ -->
+<section>
+  <h2>9. Fontes</h2>
+  <ul class="small" style="color:var(--ink)">
+    <li>Focus NFe — preços: focusnfe.com.br/precos (consultado em 14/10/2026)</li>
+    <li>Focus NFe — documentação da API (ambientes, autenticação, NF-e, CT-e, MDF-e): doc.focusnfe.com.br e campos.focusnfe.com.br</li>
+    <li>ANTT — DCS PEF v1.1, manual do Web Service PEF (incluído no repositório github.com/rumbleh/laravel-ciot-antt)</li>
+    <li>Projeto Delphi de referência: github.com/gmsaldanha/Ciot-Delphi (cópia local em <code>CIOT Delph/Ciot-Delphi</code>)</li>
+    <li>Fórum ACBr — integração direta com a ANTT para CIOT de frota própria: projetoacbr.com.br/forum/topic/92453</li>
+    <li>Resolução ANTT 6.078/2026 e obrigatoriedade do CIOT a partir de 24/05/2026: inventti.com.br; portaldotransportador.com</li>
+    <li>Preço de certificado A1: omie.com.br (tabela 2026), contratações públicas TRT-9 e CRCPR 2026</li>
+    <li>Comparativos de APIs fiscais: notaas.com.br; x-apps.com.br</li>
+  </ul>
+  <p class="small">Preços de terceiros mudam. Confirmar valores antes de contratar.</p>
+</section>
+
+</body>
+</html>

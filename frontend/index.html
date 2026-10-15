@@ -1,0 +1,294 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PostoFiscal — NF-e · CT-e · MDF-e · CIOT</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="login-page" class="login-page" style="display:flex">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon">PF</div>
+      <div>
+        <div class="logo-text">PostoFiscal</div>
+        <div class="logo-sub">Documentos fiscais para postos</div>
+      </div>
+    </div>
+    <h1>Entrar</h1>
+    <p>Emissão de NF-e, CT-e, MDF-e e CIOT</p>
+    <div id="login-error" class="login-error"></div>
+    <form id="login-form">
+      <div class="form-group">
+        <label for="login-user">Usuário</label>
+        <input id="login-user" type="text" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="login-pass">Senha</label>
+        <input id="login-pass" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="login-btn">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">PF</div>
+      <div>
+        <div class="logo-text">PostoFiscal</div>
+        <div class="logo-sub">v1.0</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Geral</div>
+      <a class="nav-item active" data-page="dashboard"><span class="icon">⬡</span><span>Dashboard</span></a>
+      <div class="nav-section-label">Emissão</div>
+      <a class="nav-item" data-page="nfe"><span class="icon">🧾</span><span>NF-e</span></a>
+      <a class="nav-item" data-page="cte"><span class="icon">🚚</span><span>CT-e</span></a>
+      <a class="nav-item" data-page="mdfe"><span class="icon">📦</span><span>MDF-e</span></a>
+      <div class="nav-section-label">Diferencial</div>
+      <a class="nav-item" data-page="ciot"><span class="icon">🔑</span><span>CIOT</span><span class="badge">ANTT</span></a>
+      <div class="nav-section-label">Cadastros</div>
+      <a class="nav-item" data-page="clientes"><span class="icon">👤</span><span>Clientes</span></a>
+      <a class="nav-item" data-page="produtos"><span class="icon">⛽</span><span>Combustíveis</span></a>
+      <a class="nav-item" data-page="empresa"><span class="icon">⚙</span><span>Empresa</span></a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div>
+          <div class="user-name" id="user-name">—</div>
+          <div class="user-role" id="user-role">—</div>
+        </div>
+        <button class="logout-btn" id="logout-btn" title="Sair">⏏</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h2 class="page-title" id="page-title">Dashboard</h2>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </header>
+    <div class="content">
+
+      <div id="view-dashboard" class="view active">
+        <div class="stats-grid">
+          <div class="stat-card blue">
+            <span class="stat-icon">🧾</span>
+            <div class="stat-label">NF-e autorizadas (mês)</div>
+            <div class="stat-value" id="dash-nfe-auth">—</div>
+            <div class="stat-sub"><span id="dash-nfe-canc">—</span> canceladas</div>
+          </div>
+          <div class="stat-card green">
+            <span class="stat-icon">💰</span>
+            <div class="stat-label">Valor NF-e (mês)</div>
+            <div class="stat-value" id="dash-nfe-total" style="font-size:18px">—</div>
+            <div class="stat-sub">notas autorizadas</div>
+          </div>
+          <div class="stat-card amber">
+            <span class="stat-icon">🚚</span>
+            <div class="stat-label">CT-e autorizados (mês)</div>
+            <div class="stat-value" id="dash-cte-auth">—</div>
+            <div class="stat-sub">Total: <span id="dash-cte-total">—</span></div>
+          </div>
+          <div class="stat-card purple">
+            <span class="stat-icon">🔑</span>
+            <div class="stat-label">MDF-e ativos / com CIOT</div>
+            <div class="stat-value"><span id="dash-mdfe-ativos">—</span></div>
+            <div class="stat-sub"><span id="dash-mdfe-ciot">—</span> com CIOT</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-header"><h3>Emissão NF-e — 30 dias</h3></div>
+          <div style="padding:20px"><canvas id="nfe-chart" style="width:100%;display:block"></canvas></div>
+        </div>
+      </div>
+
+      <div id="view-nfe" class="view">
+        <div class="table-card">
+          <div class="filters-row">
+            <div class="input-group"><label>Data inicial</label><input type="date" id="nfe-data-ini"></div>
+            <div class="input-group"><label>Data final</label><input type="date" id="nfe-data-fim"></div>
+            <div class="input-group"><label>Número</label><input type="text" id="nfe-doc" placeholder="Nº"></div>
+            <div class="input-group"><label>Cliente</label><input type="text" id="nfe-cliente"></div>
+            <div class="input-group"><label>Status</label>
+              <select id="nfe-status">
+                <option value="">Todos</option>
+                <option value="autorizada">Autorizada</option>
+                <option value="rejeitada">Rejeitada</option>
+                <option value="processando">Processando</option>
+                <option value="cancelada">Cancelada</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="nfe-search-btn" style="align-self:flex-end">Pesquisar</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Nº</th><th>Série</th><th>Emissão</th><th>Destinatário</th><th>Valor</th><th>Status</th></tr></thead>
+              <tbody id="nfe-tbody"></tbody>
+            </table>
+          </div>
+          <div class="pagination" id="nfe-pagination"></div>
+        </div>
+      </div>
+
+      <div id="view-cte" class="view">
+        <div class="table-card">
+          <div class="filters-row">
+            <div class="input-group"><label>Data inicial</label><input type="date" id="cte-data-ini"></div>
+            <div class="input-group"><label>Data final</label><input type="date" id="cte-data-fim"></div>
+            <div class="input-group"><label>Número</label><input type="text" id="cte-doc"></div>
+            <div class="input-group"><label>Status</label>
+              <select id="cte-status">
+                <option value="">Todos</option>
+                <option value="autorizada">Autorizado</option>
+                <option value="rejeitada">Rejeitado</option>
+                <option value="processando">Processando</option>
+                <option value="cancelada">Cancelado</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="cte-search-btn" style="align-self:flex-end">Pesquisar</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Nº</th><th>Série</th><th>Emissão</th><th>Remetente</th><th>Destinatário</th><th>Valor</th><th>Status</th></tr></thead>
+              <tbody id="cte-tbody"></tbody>
+            </table>
+          </div>
+          <div class="pagination" id="cte-pagination"></div>
+        </div>
+      </div>
+
+      <div id="view-mdfe" class="view">
+        <div class="table-card">
+          <div class="filters-row">
+            <div class="input-group"><label>Data inicial</label><input type="date" id="mdfe-data-ini"></div>
+            <div class="input-group"><label>Data final</label><input type="date" id="mdfe-data-fim"></div>
+            <div class="input-group"><label>Status</label>
+              <select id="mdfe-status">
+                <option value="">Todos</option>
+                <option value="autorizada">Ativo</option>
+                <option value="processando">Processando</option>
+                <option value="encerrada">Encerrado</option>
+                <option value="cancelada">Cancelado</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="mdfe-search-btn" style="align-self:flex-end">Pesquisar</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Nº</th><th>Série</th><th>Placa</th><th>Valor carga</th><th>CIOT</th><th>Status</th></tr></thead>
+              <tbody id="mdfe-tbody"></tbody>
+            </table>
+          </div>
+          <div class="pagination" id="mdfe-pagination"></div>
+        </div>
+      </div>
+
+      <div id="view-ciot" class="view">
+        <div class="ciot-card" style="margin-bottom:20px">
+          <div class="ciot-header">
+            <span class="ciot-badge">CIOT</span>
+            <strong>Código Identificador da Operação de Transporte</strong>
+          </div>
+          <p style="font-size:13px;color:var(--text-secondary)">
+            Obrigatório no contrato de frete com TAC. O número gerado entra no MDF-e (grupo infANTT/infCIOT).
+            Em produção a numeração deve vir da administradora credenciada na ANTT.
+          </p>
+        </div>
+        <div class="table-card">
+          <div class="table-header"><h3>Operações CIOT</h3></div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Número</th><th>Placa</th><th>Contratante</th><th>Motorista</th><th>Valor</th><th>Pagamento</th><th>Status</th></tr></thead>
+              <tbody id="ciot-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-clientes" class="view">
+        <div class="table-card">
+          <div class="filters-row">
+            <div class="input-group"><label>Busca</label><input type="text" id="cli-q" placeholder="Nome ou documento"></div>
+            <button class="btn btn-primary" id="cli-search-btn" style="align-self:flex-end">Pesquisar</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Nome</th><th>Tipo</th><th>CPF/CNPJ</th><th>Município</th><th>UF</th></tr></thead>
+              <tbody id="cli-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-produtos" class="view">
+        <div class="table-card">
+          <div class="table-header"><h3>Combustíveis e produtos</h3></div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Código</th><th>Descrição</th><th>ANP</th><th>NCM</th><th>CFOP</th><th>Un.</th><th>Preço</th></tr></thead>
+              <tbody id="prod-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-empresa" class="view">
+        <div class="table-card" style="padding:24px">
+          <form id="empresa-form" class="form-grid">
+            <div class="form-group"><label>Razão social</label><input name="razao_social" required></div>
+            <div class="form-group"><label>Nome fantasia</label><input name="nome_fantasia"></div>
+            <div class="form-group"><label>CNPJ</label><input name="cnpj" required></div>
+            <div class="form-group"><label>IE</label><input name="ie"></div>
+            <div class="form-group"><label>UF</label><input name="uf" maxlength="2" required></div>
+            <div class="form-group"><label>cUF (IBGE)</label><input name="cuf" required></div>
+            <div class="form-group"><label>Município</label><input name="municipio"></div>
+            <div class="form-group"><label>cMun (IBGE)</label><input name="cmun"></div>
+            <div class="form-group"><label>CEP</label><input name="cep"></div>
+            <div class="form-group"><label>Logradouro</label><input name="logradouro"></div>
+            <div class="form-group"><label>Número</label><input name="numero"></div>
+            <div class="form-group"><label>Bairro</label><input name="bairro"></div>
+            <div class="form-group"><label>CRT</label>
+              <select name="crt"><option value="1">1 - Simples</option><option value="2">2 - Simples excesso</option><option value="3">3 - Normal</option></select>
+            </div>
+            <div class="form-group"><label>Ambiente</label>
+              <select name="ambiente"><option value="2">2 - Homologação</option><option value="1">1 - Produção</option></select>
+            </div>
+            <div class="form-group"><label>Telefone</label><input name="fone"></div>
+            <div class="form-group"><label>E-mail</label><input name="email"></div>
+            <button class="btn btn-primary" type="submit">Salvar empresa</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="overlay" id="panel-overlay"></div>
+<aside class="detail-panel" id="detail-panel">
+  <div class="detail-header">
+    <h2 id="detail-title">Detalhes</h2>
+    <button class="close-btn" id="close-panel">✕</button>
+  </div>
+  <div class="detail-body" id="detail-body"></div>
+</aside>
+
+<div class="overlay" id="modal-overlay"></div>
+<div class="modal" id="modal">
+  <div class="detail-header">
+    <h2 id="modal-title">Novo</h2>
+    <button class="close-btn" id="close-modal">✕</button>
+  </div>
+  <div class="detail-body" id="modal-body"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="src/app.js"></script>
+</body>
+</html>

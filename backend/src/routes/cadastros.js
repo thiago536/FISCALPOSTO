@@ -1,0 +1,11 @@
+const router = require("express").Router();
+const { auth, adminOnly } = require("../middleware/auth");
+const ctrl = require("../controllers/cadastrosController");
+router.get("/dashboard", auth, ctrl.dashboard);
+router.get("/empresa", auth, ctrl.empresaGet);
+router.put("/empresa", auth, adminOnly, ctrl.empresaPut);
+router.get("/clientes", auth, ctrl.clientesList);
+router.post("/clientes", auth, ctrl.clientesCreate);
+router.get("/produtos", auth, ctrl.produtosList);
+router.post("/produtos", auth, ctrl.produtosCreate);
+module.exports = router;

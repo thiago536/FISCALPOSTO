@@ -1,0 +1,12 @@
+const router = require("express").Router();
+const { auth } = require("../middleware/auth");
+const ctrl = require("../controllers/ciotController");
+router.get("/", auth, ctrl.listar);
+router.get("/transportador", auth, ctrl.situacaoTransportador);
+router.post("/frota", auth, ctrl.frota);
+router.get("/:id", auth, ctrl.detalhe);
+router.post("/", auth, ctrl.emitir);
+router.post("/:id/cancelar", auth, ctrl.cancelar);
+router.post("/:id/encerrar", auth, ctrl.encerrar);
+router.get("/:id/consulta", auth, ctrl.consultarGerado);
+module.exports = router;
