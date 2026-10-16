@@ -1,14 +1,34 @@
 ﻿const path = require("path");
 const fs = require("fs");
-require("dotenv").config({ path: path.join(__dirname, "../.env") });
+const crypto = require("crypto");
+// ENV_FILE permite aos testes isolar o .env da máquina.
+require("dotenv").config({ path: process.env.ENV_FILE || path.join(__dirname, "../.env") });
 
-if (!process.env.JWT_SECRET) {
-  process.env.JWT_SECRET = "dev-only-altere-em-producao-" + Date.now();
-  console.warn("JWT_SECRET não definido. Usando chave temporária de desenvolvimento.");
+const { validarConfiguracao, producao } = require("./config");
+
+function abortar(linhas) {
+  console.error(["", "ERRO DE INICIALIZAÇÃO — o servidor não foi iniciado:", ...linhas.map((l) => `  - ${l}`), ""].join("\n"));
+  process.exit(1);
 }
 
-require("./db");
-require("./db/seed");
+const { erros, avisos } = validarConfiguracao();
+if (erros.length) abortar(erros);
+avisos.forEach((a) => console.warn(`AVISO: ${a}`));
+
+if (!process.env.JWT_SECRET) {
+  // Só chega aqui fora de produção (validarConfiguracao barra em produção).
+  process.env.JWT_SECRET = "dev-only-" + crypto.randomBytes(24).toString("hex");
+  console.warn("JWT_SECRET não definido. Usando chave temporária de desenvolvimento (logins caem ao reiniciar).");
+}
+
+try {
+  require("./db");
+} catch (err) {
+  if (err.name === "DbError") abortar(err.message.split("\n"));
+  throw err;
+}
+const { seed } = require("./db/seed");
+seed();
 
 const express = require("express");
 const helmet = require("helmet");
@@ -28,8 +48,18 @@ const corsOrigin = process.env.CORS_ORIGIN
 app.use(cors({
   origin: corsOrigin,
   methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id"],
+  exposedHeaders: ["X-Request-Id"],
 }));
+
+// Identificador de correlação: liga resposta, log e trilha de auditoria.
+app.use((req, res, next) => {
+  const recebido = req.get("X-Request-Id");
+  req.correlacao = recebido && /^[A-Za-z0-9-]{8,64}$/.test(recebido) ? recebido : crypto.randomUUID();
+  res.set("X-Request-Id", req.correlacao);
+  next();
+});
+
 // Limitadores só na API: assets estáticos do frontend não consomem a cota.
 app.use("/api", rateLimit({ windowMs: 15 * 60 * 1000, max: 600, standardHeaders: true }));
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 12, message: { error: "Muitas tentativas de login." } });
@@ -37,7 +67,7 @@ app.use(compression());
 app.use(express.json({ limit: "1mb" }));
 
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`);
+  logger.info(`${req.method} ${req.path}`, { correlacao: req.correlacao });
   next();
 });
 
@@ -58,16 +88,32 @@ if (fs.existsSync(frontendDir)) {
 }
 
 app.use((req, res) => res.status(404).json({ error: "Rota não encontrada" }));
+
+// Tratamento central: erro de validação vira 400 com o campo; o resto vira 500
+// genérico (detalhe só no log), sempre com o identificador de correlação.
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  logger.error("Unhandled", { error: err.message, stack: err.stack });
-  const msg = err.message && err.message.startsWith("CIOT") ? err.message : "Erro interno do servidor";
-  res.status(500).json({ error: msg });
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "JSON inválido no corpo da requisição", correlacao: req.correlacao });
+  }
+  if (err.name === "ValidacaoError" || (err.status >= 400 && err.status < 500 && err.expose !== false)) {
+    return res.status(err.status || 400).json({ error: err.message, campo: err.campo, correlacao: req.correlacao });
+  }
+  logger.error("Erro não tratado", { correlacao: req.correlacao, error: err.message, stack: err.stack });
+  return res.status(500).json({ error: "Erro interno do servidor", correlacao: req.correlacao });
 });
+
+process.on("unhandledRejection", (err) => {
+  logger.error("Promise rejeitada sem tratamento", { error: err && err.message, stack: err && err.stack });
+});
+// Encerramento limpo libera o lock do banco.
+for (const sinal of ["SIGINT", "SIGTERM"]) process.on(sinal, () => process.exit(0));
 
 // Com FISCAL_PROVIDER=focus, consulta periodicamente os documentos "processando".
 const emissor = require("./services/emissor");
 emissor.iniciarSincronizador();
 console.log(`Emissor fiscal: ${emissor.modo() === "focus" ? `Focus NFe (${require("./services/focus").config().ambiente})` : "LOCAL (simulado, sem valor fiscal)"}`);
+if (producao()) console.log("Modo produção: seed de demonstração desativado.");
 
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || "0.0.0.0";

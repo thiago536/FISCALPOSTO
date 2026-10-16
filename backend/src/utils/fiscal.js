@@ -1,3 +1,5 @@
+const { dvChave, normalizarDoc } = require("./documentos");
+
 function onlyDigits(v = "") {
   return String(v).replace(/\D/g, "");
 }
@@ -31,16 +33,9 @@ function pad(n, size) {
   return String(n).padStart(size, "0");
 }
 
+// DV da chave de acesso; aceita CNPJ alfanumérico (caractere vale ASCII − 48).
 function dvMod11(base) {
-  let peso = 2;
-  let soma = 0;
-  for (let i = base.length - 1; i >= 0; i--) {
-    soma += Number(base[i]) * peso;
-    peso = peso === 9 ? 2 : peso + 1;
-  }
-  const resto = soma % 11;
-  const dv = resto === 0 || resto === 1 ? 0 : 11 - resto;
-  return String(dv);
+  return String(dvChave(base));
 }
 
 function gerarCnf() {
@@ -51,7 +46,7 @@ function montarChave({ cuf, cnpj, modelo, serie, numero, tpEmis = "1", aamm }) {
   const agora = new Date();
   const aa = aamm || `${String(agora.getFullYear()).slice(2)}${pad(agora.getMonth() + 1, 2)}`;
   const cnf = gerarCnf();
-  const base = `${pad(cuf, 2)}${aa}${pad(onlyDigits(cnpj), 14)}${pad(modelo, 2)}${pad(serie, 3)}${pad(numero, 9)}${tpEmis}${cnf}`;
+  const base = `${pad(cuf, 2)}${aa}${pad(normalizarDoc(cnpj), 14)}${pad(modelo, 2)}${pad(serie, 3)}${pad(numero, 9)}${tpEmis}${cnf}`;
   return base + dvMod11(base);
 }
 

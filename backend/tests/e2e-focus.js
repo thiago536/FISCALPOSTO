@@ -76,10 +76,20 @@ const JUST = "Cancelamento de teste automatizado";
 
 async function iniciarApp(mock, dataDir) {
   const port = await freePort();
+  // Env do filho montado explicitamente: nada de produção nem certificado real vaza de .env/shell.
   const env = {
-    ...process.env,
+    PATH: process.env.PATH,
+    SystemRoot: process.env.SystemRoot,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    NODE_ENV: "test",
     PORT: String(port),
     HOST: "127.0.0.1",
+    CIOT_PROVIDER: "local",
+    // .env inexistente: dotenv não carrega nada da máquina (PFX, tokens).
+    ENV_FILE: path.join(dataDir, "sem-env-de-proposito"),
+    FOCUS_AMBIENTE: "homologacao",
+    ANTT_AMBIENTE: "homologacao",
     FISCAL_PROVIDER: "focus",
     FOCUS_TOKEN: TOKEN,
     FOCUS_URL: mock.url,
@@ -112,7 +122,7 @@ async function main() {
   console.log(`PostoFiscal E2E Focus — app ${BASE}, mock ${mock.url}\n`);
 
   const st = {};
-  const emitirNfe = (extra = {}) => req("POST", "/api/nfe", { body: { cliente_id: st.cliente, itens: [ITEM], ...extra } });
+  const emitirNfe = (extra = {}) => req("POST", "/api/nfe", { body: { cliente_id: st.cliente, itens: [{ ...ITEM, produto_id: st.produto }], ...extra } });
   const getNfe = async (id) => (await req("GET", "/api/nfe?limit=200")).body.data.find((n) => n.id === id);
 
   try {
@@ -125,6 +135,12 @@ async function main() {
         assert.strictEqual(r.status, 201, r.text);
         return r.body.id;
       };
+      // Empresa de teste (CNPJ fictício, válido por dígito verificador) tira a flag demo do seed.
+      const emp = await req("PUT", "/api/cadastros/empresa", { body: { cnpj: "12345678000195" } });
+      assert.strictEqual(emp.status, 200, emp.text);
+      const prod = await req("POST", "/api/cadastros/produtos", { body: { codigo: "GASOLINA-T", descricao: "Gasolina C Comum", ncm: "27101259", cfop: "5656", unidade: "LT", preco: 5.5, anp: "320101001", desc_anp: "GASOLINA C COMUM", cst_icms: "60", aliq_icms: 0 } });
+      assert.strictEqual(prod.status, 201, prod.text);
+      st.produto = prod.body.id;
       st.cliente = await mk("TRANSPORTES SAO JUDAS LTDA", "11444777000161", ENDERECO);
       st.rejeitar = await mk("REJEITAR", "11222333000181", ENDERECO);
       st.semEnd = await mk("SEM ENDERECO LTDA", "45997418000153", { uf: "SP" });

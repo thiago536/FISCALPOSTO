@@ -17,8 +17,29 @@ function config() {
   if (!URLS[ambiente]) throw new Error(`FOCUS_AMBIENTE inválido: ${ambiente} (use homologacao ou producao)`);
   const token = process.env.FOCUS_TOKEN;
   if (!token) throw new Error("FOCUS_TOKEN não configurado no .env");
-  // FOCUS_URL existe para apontar os testes para um servidor falso.
-  const base = (process.env.FOCUS_URL || URLS[ambiente]).replace(/\/+$/, "");
+  const producao = process.env.NODE_ENV === "production";
+  if (ambiente === "producao" && !(producao && process.env.ALLOW_PRODUCAO === "sim")) {
+    throw new Error("FOCUS_AMBIENTE=producao exige NODE_ENV=production e ALLOW_PRODUCAO=sim");
+  }
+  // FOCUS_URL existe só para apontar os testes para um servidor falso; em
+  // produção é ignorado para o token nunca ir para outro endereço.
+  const override = String(process.env.FOCUS_URL || "").trim();
+  let base = URLS[ambiente];
+  if (override) {
+    let u;
+    try {
+      u = new URL(override);
+    } catch {
+      throw new Error("FOCUS_URL inválida");
+    }
+    const host = u.hostname.toLowerCase().replace(/\.$/, "");
+    const loopback = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+    if (ambiente === "producao" || !loopback || u.username || u.password || !/^https?:$/.test(u.protocol)) {
+      throw new Error("FOCUS_URL só é aceita para loopback (localhost/127.0.0.1/::1) fora de produção");
+    }
+    base = u.origin + u.pathname;
+  }
+  base = base.replace(/\/+$/, "");
   return { ambiente, token, base };
 }
 
@@ -41,7 +62,7 @@ class FocusError extends Error {
   }
 }
 
-async function request(method, path, body, { raw = false, timeoutMs = 60000 } = {}) {
+async function request(method, path, body, { raw = false, timeoutMs = Number(process.env.FOCUS_TIMEOUT_MS) || 60000 } = {}) {
   const { token, base } = config();
   const url = /^https?:\/\//.test(path) ? path : `${base}${path}`;
   // Arquivos às vezes vêm como URL absoluta de storage externo; o token só
@@ -54,6 +75,7 @@ async function request(method, path, body, { raw = false, timeoutMs = 60000 } = 
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
+    redirect: "error",
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (raw) {

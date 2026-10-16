@@ -9,8 +9,10 @@
     "test": "node tests/e2e.js",
     "test:emissor": "node tests/emissor.test.js",
     "test:antt": "node tests/antt-payload.test.js",
+    "test:antt-mtls": "node tests/antt-mtls.test.js",
+    "test:seguranca": "node tests/seguranca-producao.test.js",
     "test:focus": "node tests/e2e-focus.js",
-    "test:all": "npm test && npm run test:focus && npm run test:emissor && npm run test:antt"
+    "test:all": "npm test && npm run test:seguranca && npm run test:focus && npm run test:emissor && npm run test:antt && npm run test:antt-mtls"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

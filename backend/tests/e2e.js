@@ -1,12 +1,67 @@
 /**
  * Teste end-to-end real do PostoFiscal.
- * Requer o servidor rodando. Uso:
+ * Sem BASE_URL, sobe o próprio servidor (modo local) com DATA_DIR temporário e
+ * sem o .env da máquina: cada execução parte de um banco novo (idempotente).
+ * Com BASE_URL, testa o servidor indicado (que precisa estar limpo). Uso:
  *   node tests/e2e.js
  *   BASE_URL=http://192.168.0.105:3001 node tests/e2e.js
  */
 const assert = require("node:assert");
 
-const BASE = (process.env.BASE_URL || "http://127.0.0.1:3001").replace(/\/$/, "");
+const fs = require("node:fs");
+const os = require("node:os");
+const net = require("node:net");
+const path = require("node:path");
+const { spawn } = require("node:child_process");
+
+let BASE = (process.env.BASE_URL || "").replace(/\/$/, "");
+
+function freePort() {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.listen(0, "127.0.0.1", () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
+  });
+}
+
+async function iniciarApp() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "fiscal-e2e-"));
+  const port = await freePort();
+  const env = {
+    PATH: process.env.PATH,
+    SystemRoot: process.env.SystemRoot,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    NODE_ENV: "test",
+    PORT: String(port),
+    HOST: "127.0.0.1",
+    FISCAL_PROVIDER: "local",
+    CIOT_PROVIDER: "local",
+    ENV_FILE: path.join(dataDir, "sem-env-de-proposito"),
+    DATA_DIR: dataDir,
+    JWT_SECRET: "e2e-secret-" + port,
+  };
+  const child = spawn(process.execPath, [path.join(__dirname, "../src/app.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
+  let saida = "";
+  child.stdout.on("data", (d) => (saida += d));
+  child.stderr.on("data", (d) => (saida += d));
+  BASE = `http://127.0.0.1:${port}`;
+  // Espera o servidor responder antes do primeiro teste (a partida cria o seed com bcrypt).
+  const fim = Date.now() + 30000;
+  for (;;) {
+    if (child.exitCode !== null) throw new Error(`app encerrou (${child.exitCode}):\n${saida}`);
+    try { if ((await fetch(BASE + "/api/health")).ok) break; } catch { /* ainda subindo */ }
+    if (Date.now() > fim) { child.kill(); throw new Error(`app não respondeu em 30s:\n${saida}`); }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  child.stop = () => {
+    child.kill();
+    try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch { /* ignora */ }
+  };
+  return child;
+}
 
 const state = {
   token: null,
@@ -227,7 +282,10 @@ const RNTRC = "12345678";
 
 // ---------------------------------------------------------------- suíte
 
+let appFilho = null;
+
 async function main() {
+  if (!BASE) appFilho = await iniciarApp();
   console.log(`PostoFiscal E2E — alvo ${BASE}\n`);
 
   await test("health responde ok", async () => {
@@ -815,10 +873,12 @@ async function main() {
   if (state.mdfe) console.log(`MDF-e: ${state.mdfe.chave} (${state.mdfe.protocolo})`);
   if (state.ciot) console.log(`CIOT: ${state.ciot.numero}`);
 
+  if (appFilho) appFilho.stop();
   process.exit(falhas.length ? 1 : 0);
 }
 
 main().catch((err) => {
   console.error("Erro fatal na suíte:", err);
+  if (appFilho) appFilho.stop();
   process.exit(1);
 });

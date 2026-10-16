@@ -6,6 +6,7 @@
  * o que evita furo/duplicidade quando uma nota é rejeitada.
  */
 const { onlyDigits, dhEmi } = require("../utils/fiscal");
+const { normalizarDoc, tipoDoc } = require("../utils/documentos");
 
 // Remove chaves vazias: a Focus valida "" como valor informado e rejeita.
 function limpo(obj) {
@@ -24,10 +25,11 @@ const dec = (n, casas = 2) => Number(Number(n || 0).toFixed(casas));
 // Monta os campos de uma parte (remetente, destinatario, ...) no padrão
 // `<campo>_<papel>` que a Focus usa em todos os documentos.
 function parte(papel, p) {
-  const doc = onlyDigits(p.doc);
+  // normalizarDoc preserva as letras do CNPJ alfanumérico (onlyDigits apagaria).
+  const doc = normalizarDoc(p.doc);
   return {
     [`nome_${papel}`]: p.nome,
-    [doc.length === 11 ? `cpf_${papel}` : `cnpj_${papel}`]: doc || undefined,
+    [tipoDoc(doc) === "CPF" ? `cpf_${papel}` : `cnpj_${papel}`]: doc || undefined,
     [`inscricao_estadual_${papel}`]: p.ie,
     [`logradouro_${papel}`]: p.logradouro,
     [`numero_${papel}`]: p.numero || (p.logradouro ? "SN" : undefined),
@@ -191,7 +193,7 @@ function mdfe(e, m, condutores, percurso, documentos, ciot) {
       ciot: ciot ? [{
         // Layout do MDF-e aceita só os 12 dígitos do ID; no modo ANTT o número guardado inclui o DV.
         ciot: String(ciot.numero).slice(0, 12),
-        [onlyDigits(ciot.contratante_doc).length === 11 ? "cpf_responsavel" : "cnpj_responsavel"]: onlyDigits(ciot.contratante_doc),
+        [tipoDoc(ciot.contratante_doc) === "CPF" ? "cpf_responsavel" : "cnpj_responsavel"]: normalizarDoc(ciot.contratante_doc),
       }] : undefined,
       placa_veiculo: m.placa,
       renavam_veiculo: onlyDigits(m.renavam) || undefined,

@@ -28,6 +28,8 @@ const obrigatorios = {
   mdfe: ["emitente", "uf_inicio", "uf_fim", "cnpj_emitente", "modal_rodoviario", "municipios_descarregamento"],
 };
 
+const { dvChave } = require("../src/utils/documentos");
+
 function startMock({ token = "test" } = {}) {
   const docs = new Map(); // `${tipo}/${ref}` -> doc
   const received = []; // { tipo, ref, payload }
@@ -35,7 +37,7 @@ function startMock({ token = "test" } = {}) {
 
   const chaveDe = (tipo, n) => {
     const base = `35${"2610"}11222333000181${ROTAS[tipo].modelo}001${String(n).padStart(9, "0")}1${String(n).padStart(8, "0")}`;
-    return base + "0";
+    return base + dvChave(base);
   };
 
   function resposta(tipo, d) {
