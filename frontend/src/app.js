@@ -22,7 +22,8 @@ function badgeStatus(s) {
   const map = {
     autorizada: "green", autorizado: "green", emitido: "green",
     rejeitada: "red", cancelada: "red", cancelado: "red",
-    encerrada: "blue", rascunho: "amber", processando: "blue",
+    rejeitado: "red", nao_enviado: "red", nao_registrado: "red",
+    encerrada: "blue", encerrado: "blue", rascunho: "amber", processando: "blue",
   };
   const cls = map[s] || "amber";
   return `<span class="badge ${cls}">${esc(s || "pendente")}</span>`;
@@ -276,6 +277,17 @@ async function loadMdfe(page = 1, silent = false) {
 }
 document.getElementById("mdfe-search-btn").addEventListener("click", () => loadMdfe(1));
 
+// Só CIOT confirmado pela ANTT (oficial) aparece como número de CIOT. Pendente
+// mostra o ID da operação, que NÃO é CIOT; simulado leva aviso explícito.
+function ciotNumeroCell(c) {
+  if (c.numero) {
+    const tag = c.simulado ? ' <span class="badge amber">SIMULADO</span>' : c.oficial ? ' <span class="badge green">ANTT</span>' : "";
+    return `<strong>${esc(c.numero)}</strong>${tag}`;
+  }
+  if (c.id_operacao) return `<span title="Identificador da operação; não é o CIOT">ID op. ${esc(c.id_operacao)} (sem CIOT)</span>`;
+  return "—";
+}
+
 async function loadCiot() {
   const tbody = document.getElementById("ciot-tbody");
   try {
@@ -283,7 +295,7 @@ async function loadCiot() {
     cache.ciots = data.data;
     tbody.innerHTML = data.data.map((c) => `
       <tr>
-        <td><strong>${esc(c.numero)}</strong></td><td>${fmt(c.placa)}</td>
+        <td>${ciotNumeroCell(c)}</td><td>${fmt(c.placa)}</td>
         <td>${fmt(c.contratante_nome)}</td><td>${fmt(c.motorista_nome)}</td>
         <td>${fmt(c.valor_contrato, "money")}</td>
         <td>${fmt(c.forma_pagto)}</td><td>${badgeStatus(c.status)}</td>
@@ -777,7 +789,7 @@ function openCiotForm() {
           forma_pagto: val("ciot-fp"), chave_pix: val("ciot-pix"),
         }),
       });
-      showToast("CIOT " + r.numero);
+      showToast(r.simulado ? "CIOT SIMULADO (sem validade legal) " + r.numero : "CIOT " + r.numero);
       closeModal();
       loadCiot();
     } catch (ex) { showToast(ex.message, "error"); }

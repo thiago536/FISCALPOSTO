@@ -2,10 +2,23 @@
 // Nomes de campos seguem os EXEMPLOS JSON do manual (onde a tabela diverge:
 // ContratantesCargFrac, RNTRC do veiculo, PesoTotalCarga no encerramento).
 
+const D = require("../utils/documentos");
+
 class AnttValidationError extends Error {
   constructor(message) {
     super(message);
     this.name = "AnttValidationError";
+  }
+}
+
+// Validadores de documentos.js lançam ValidacaoError; aqui viram AnttValidationError
+// (mesma mensagem) para o controller e os testes tratarem um tipo só.
+function oficial(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof D.ValidacaoError) throw new AnttValidationError(e.message);
+    throw e;
   }
 }
 
@@ -15,36 +28,12 @@ const fail = (msg) => {
 };
 const has = (v) => v !== undefined && v !== null && String(v) !== "";
 
-function cpfValido(c) {
-  if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false;
-  for (const n of [9, 10]) {
-    let s = 0;
-    for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i);
-    if (((s * 10) % 11) % 10 !== Number(c[n])) return false;
-  }
-  return true;
-}
+const cpfValido = D.cpfValido;
+const cnpjValido = D.cnpjValido;
 
-function cnpjValido(c) {
-  if (c.length !== 14 || /^(\d)\1+$/.test(c)) return false;
-  for (const n of [12, 13]) {
-    let s = 0;
-    let p = n - 7;
-    for (let i = 0; i < n; i++) {
-      s += Number(c[i]) * p--;
-      if (p < 2) p = 9;
-    }
-    const dv = s % 11 < 2 ? 0 : 11 - (s % 11);
-    if (dv !== Number(c[n])) return false;
-  }
-  return true;
-}
-
-// B4: CPF/CNPJ com DV valido. Retorna so digitos.
+// B4: CPF/CNPJ com DV valido (CNPJ alfanumérico aceito). Retorna sem máscara.
 function docObrig(v, nome) {
-  const d = digits(v);
-  if (!(cpfValido(d) || cnpjValido(d))) fail(`${nome} inválido (CPF/CNPJ com dígito verificador)`);
-  return d;
+  return oficial(() => D.exigirDoc(v, nome));
 }
 
 // 9 digitos; 8 -> zero a esquerda; 7 invalido.
@@ -53,16 +42,12 @@ function rntrc(v, nome, obrig = true) {
     if (obrig) fail(`${nome} é obrigatório`);
     return undefined;
   }
-  let d = digits(v);
-  if (d.length === 8) d = "0" + d;
-  if (d.length !== 9) fail(`${nome} inválido (informe 9 dígitos; 8 recebem zero à esquerda)`);
-  return d;
+  const d = oficial(() => D.normalizarRntrc(v, nome));
+  return d.padStart(9, "0"); // 8 dígitos recebem zero à esquerda (manual PEF)
 }
 
 function placa(v, nome = "Placa") {
-  const p = String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (!/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(p)) fail(`${nome} inválida: ${v}`);
-  return p;
+  return oficial(() => D.exigirPlaca(v, nome));
 }
 
 function dec(v, nome, { max = 99999999.99, obrig = true } = {}) {
@@ -98,36 +83,45 @@ function dataHora(d = new Date()) {
   return `${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}`;
 }
 
+// DCS (OrigemDestino): havendo mais de uma forma de localização no par, usa-se
+// sempre a mais específica: LatLong -> CEP -> Cidade. Só ela vai no payload.
+// Retorna { o, tipo } para a regra B111 (origem e destino com o mesmo tipo).
 function ponto(p, sufixo, nome) {
   if (!p) return undefined;
-  const o = {};
   const mun = p.municipio ?? p.codigo_municipio;
-  if (has(mun)) {
-    const m = digits(mun);
-    if (m.length !== 7) fail(`${nome}: código IBGE do município deve ter 7 dígitos`);
-    o[`CodigoMunicipio${sufixo}`] = Number(m);
+  if (has(p.latitude) || has(p.longitude)) {
+    if (!has(p.latitude) || !has(p.longitude)) fail(`${nome}: latitude e longitude devem ser informadas juntas`); // B110
+    const lat = Number(p.latitude);
+    const lon = Number(p.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      fail(`${nome}: latitude/longitude inválidas`);
+    }
+    return { tipo: "coordenadas", o: { [`Latitude${sufixo}`]: Number(lat.toFixed(6)), [`Longitude${sufixo}`]: Number(lon.toFixed(6)) } };
   }
   if (has(p.cep)) {
     const c = digits(p.cep);
     if (c.length !== 8) fail(`${nome}: CEP deve ter 8 dígitos`);
-    o[`Cep${sufixo}`] = c;
+    return { tipo: "CEP", o: { [`Cep${sufixo}`]: c } };
   }
-  if (has(p.latitude) || has(p.longitude)) {
-    if (!has(p.latitude) || !has(p.longitude)) fail(`${nome}: latitude e longitude devem ser informadas juntas`);
-    o[`Latitude${sufixo}`] = Number(Number(p.latitude).toFixed(6));
-    o[`Longitude${sufixo}`] = Number(Number(p.longitude).toFixed(6));
+  if (has(mun)) {
+    const m = oficial(() => D.exigirMunicipio(mun, null, `${nome}: código IBGE do município`));
+    // Os 2 primeiros dígitos do código IBGE são o código da UF.
+    if (!Object.values(D.CUF).includes(m.slice(0, 2))) fail(`${nome}: código IBGE ${m} não começa por código de UF válido`);
+    return { tipo: "município", o: { [`CodigoMunicipio${sufixo}`]: Number(m) } };
   }
-  if (!Object.keys(o).length) fail(`${nome}: informe município, CEP ou latitude/longitude`);
-  return o;
+  fail(`${nome}: informe município, CEP ou latitude/longitude`); // B109
 }
 
 function origemDestino(lista, { distancia, qtdViagens }) {
   if (!Array.isArray(lista) || !lista.length) fail("OrigemDestino é obrigatório para este tipo de operação");
   return lista.map((od, i) => {
-    const o = ponto(od.origem, "Origem", `Origem[${i + 1}]`);
-    const d = ponto(od.destino, "Destino", `Destino[${i + 1}]`);
-    if (!o || !d) fail(`OrigemDestino[${i + 1}]: origem e destino são obrigatórios`);
-    const r = { Origem: o, Destino: d };
+    const po = ponto(od.origem, "Origem", `Origem[${i + 1}]`);
+    const pd = ponto(od.destino, "Destino", `Destino[${i + 1}]`);
+    if (!po || !pd) fail(`OrigemDestino[${i + 1}]: origem e destino são obrigatórios`);
+    if (po.tipo !== pd.tipo) {
+      fail(`OrigemDestino[${i + 1}]: origem (${po.tipo}) e destino (${pd.tipo}) devem usar o mesmo tipo de localização (regra B111)`);
+    }
+    const r = { Origem: po.o, Destino: pd.o };
     if (distancia) {
       const km = Math.round(Number(od.distancia));
       if (!(km > 0) || String(km).length > 8) fail(`OrigemDestino[${i + 1}]: distância (km) deve ser maior que zero`);
@@ -145,9 +139,11 @@ function origemDestino(lista, { distancia, qtdViagens }) {
 // 1-IP/cartao, 2-CC, 3-Poupanca, 4-Conta pagamento, 5-Outros, 6-Pix
 const TIPO_PAGTO = { PIX: 6, TED: 2, CARTAO: 1, DINHEIRO: 5, OUTROS: 5 };
 
-function pagamento(p, creditadoPadrao) {
+function pagamento(p, creditadoPadrao, { ip = false } = {}) {
   const tipo = Number(has(p.tipo_pagamento) ? p.tipo_pagamento : TIPO_PAGTO[String(p.forma_pagto || "PIX").toUpperCase()]);
   if (![1, 2, 3, 4, 5, 6].includes(tipo)) fail("TipoPagamento inválido (1 a 6)");
+  // B118: cartão pré-pago (1) só quando quem transmite é Instituição de Pagamento.
+  if (tipo === 1 && !ip) fail("TipoPagamento 1 (cartão pré-pago de IP) não é permitido quando o certificado não é de Instituição de Pagamento (regra B118)");
   const r = { TipoPagamento: tipo };
   if ([1, 2, 3, 4].includes(tipo)) {
     // B92/B99
@@ -172,8 +168,12 @@ function pagamento(p, creditadoPadrao) {
   }
   r.CpfCnpjCreditado = docObrig(p.creditado_doc || creditadoPadrao, "CpfCnpjCreditado");
   if (has(p.codigo_pagamento)) {
-    if (String(p.codigo_pagamento).length > 50) fail("CodigoPagamento excede 50 caracteres");
-    r.CodigoPagamento = Number(digits(p.codigo_pagamento)) || String(p.codigo_pagamento);
+    const cod = String(p.codigo_pagamento).trim();
+    if (cod.length > 50) fail("CodigoPagamento excede 50 caracteres");
+    // Linha digitável de boleto tem 47-48 dígitos: como Number perderia dígitos
+    // (limite 2^53). Só vira número quando cabe sem perda.
+    const n = /^\d+$/.test(cod) ? Number(cod) : NaN;
+    r.CodigoPagamento = Number.isSafeInteger(n) ? n : cod;
   }
   const prazo = Number(p.ind_pagamento ?? 0);
   if (![0, 1].includes(prazo)) fail("IndPagamento deve ser 0 (à vista) ou 1 (a prazo)");
@@ -192,9 +192,14 @@ function pagamento(p, creditadoPadrao) {
   return r;
 }
 
+const DIA_MS = 86400000;
+const diasEntre = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / DIA_MS);
+
 // f: dados ja normalizados pelo controller (ver controller para nomes).
-function montarDeclaracao(f, idOperacao, agora = new Date()) {
-  if (!/^[A-Za-z0-9]{12}$/.test(String(idOperacao || ""))) fail("IdOperacaoTransporte deve ter 12 caracteres");
+// opts.ip: certificado de Instituição de Pagamento (este sistema não é IP).
+// opts.emissorDoc: CNPJ do certificado; sem IP, B115 exige contratado = emissor.
+function montarDeclaracao(f, idOperacao, agora = new Date(), { ip = false, emissorDoc } = {}) {
+  if (!/^[0-9A-Z]{12}$/.test(String(idOperacao || ""))) fail("IdOperacaoTransporte deve ter 12 caracteres [0-9A-Z]");
   const tipo = Number(f.tipo_operacao ?? 1);
   if (![1, 2, 3].includes(tipo)) fail("TipoOperacao inválido (1, 2 ou 3)");
 
@@ -205,6 +210,17 @@ function montarDeclaracao(f, idOperacao, agora = new Date()) {
     RNTRCContratado: rntrc(f.contratado_rntrc, "RNTRCContratado"),
     CpfCnpjContratante: docObrig(f.contratante_doc, "CpfCnpjContratante"),
   };
+  if (!ip && emissorDoc && p.CpfCnpjContratado !== emissorDoc) {
+    // B115 + Portaria SUROC 6/2026 art. 3º: sem IP, a ETC só declara em nome
+    // próprio (ela é a contratada). Operação com TAC/equiparado exige IP.
+    fail(
+      `CpfCnpjContratado (${p.CpfCnpjContratado}) deve ser o CNPJ do certificado (${emissorDoc}): pelo web service direto a ETC só declara operação em que ela é a transportadora contratada (regra B115). Operação com TAC ou equiparado deve ser gerada por Instituição de Pagamento.`
+    );
+  }
+  if (tipo === 3 && !ip) {
+    // B27: TAC-Agregado exige contratado TAC; com B115 isso só é possível via IP.
+    fail("TAC-Agregado (TipoOperacao 3) exige contratado TAC e só pode ser declarado por Instituição de Pagamento (regras B27/B115)");
+  }
   const rc = rntrc(f.contratante_rntrc, "RNTRCContratante", false);
   if (rc) p.RNTRCContratante = rc;
 
@@ -222,15 +238,24 @@ function montarDeclaracao(f, idOperacao, agora = new Date()) {
     fail("JustificativaContingencia não permitida fora de contingência");
   }
 
-  p.DataInicioViagem = dataISO(f.data_inicio_viagem, "DataInicioViagem");
-  if (!p.IndContingencia && p.DataInicioViagem < p.DataDeclaracao.slice(0, 10)) {
-    fail("A data de início da viagem não pode ser inferior à data atual"); // B6
+  const hoje = p.DataDeclaracao.slice(0, 10);
+  // B56: TAC-Agregado não informa DataInicioViagem (a ANTT usa a data da declaração).
+  const inicio = tipo === 3 ? hoje : dataISO(f.data_inicio_viagem, "DataInicioViagem");
+  if (tipo === 3) {
+    if (has(f.data_inicio_viagem)) fail("DataInicioViagem não deve ser informada para TAC-Agregado (regra B56)");
+  } else {
+    p.DataInicioViagem = inicio;
+    if (!p.IndContingencia && inicio < hoje) fail("A data de início da viagem não pode ser inferior à data atual"); // B6
+    if (!p.IndContingencia && diasEntre(hoje, inicio) > 30) fail("A data de início da viagem excede 30 dias da data atual (regra B22)");
   }
   p.DataFimViagem = dataISO(f.data_fim_viagem, "DataFimViagem");
-  if (p.DataFimViagem < p.DataInicioViagem) fail("DataFimViagem deve ser maior ou igual à DataInicioViagem"); // B13
+  if (p.DataFimViagem < inicio) fail("DataFimViagem deve ser maior ou igual à DataInicioViagem"); // B13
+  const limite = tipo === 3 ? 30 : 90; // B30 / B21
+  if (diasEntre(inicio, p.DataFimViagem) > limite) fail(`O intervalo entre início e fim da viagem não pode passar de ${limite} dias (regra ${tipo === 3 ? "B30" : "B21"})`);
 
   const veic = f.veiculos;
   if (!Array.isArray(veic) || !veic.length) fail("Veiculos é obrigatório (ao menos uma placa)");
+  if (veic.length > 5) fail("Somente é permitido informar até 5 veículos (regra B49)");
   const vistas = new Set();
   p.Veiculos = veic.map((v) => {
     const pl = placa(v.placa);
@@ -261,10 +286,13 @@ function montarDeclaracao(f, idOperacao, agora = new Date()) {
       const cf = c.contratantes_frac;
       if (!Array.isArray(cf) || !cf.length) fail("ContratantesCargFrac obrigatório para carga fracionada");
       p.DadosCarga.ContratantesCargFrac = cf.map((d) => docObrig(d, "ContratantesCargFrac"));
+      if (p.DadosCarga.ContratantesCargFrac.includes(p.CpfCnpjContratante)) {
+        fail("ContratantesCargFrac não pode repetir o CpfCnpjContratante da operação (regra B119)");
+      }
     }
   }
 
-  p.InfPagamento = [pagamento(f.pagamento || {}, p.CpfCnpjContratado)];
+  p.InfPagamento = [pagamento(f.pagamento || {}, p.CpfCnpjContratado, { ip })];
 
   if (tipo === 1) {
     const i = f.indicadores || {};
@@ -279,7 +307,7 @@ function montarDeclaracao(f, idOperacao, agora = new Date()) {
 
 function codigoCiot(v, nome = "CodigoIdentificacaoOperacao") {
   const s = String(v ?? "").replace(/\s/g, "");
-  if (!/^[A-Za-z0-9]{16}$/.test(s)) fail(`${nome} deve ter 16 caracteres (ID + código verificador)`);
+  if (!/^[0-9A-Z]{16}$/.test(s)) fail(`${nome} deve ter 16 caracteres (ID + código verificador)`);
   return s;
 }
 
@@ -289,23 +317,27 @@ function montarCancelamento(ciot, motivo) {
   return { CodigoIdentificacaoOperacao: codigoCiot(ciot), MotivoCancelamento: String(motivo) };
 }
 
-// Encerramento: tipo 1 exige peso; tipo 3 exige OrigemDestino (com distancia e qtd_viagens).
+// Encerramento (DCS serviço 06):
+// - OrigemDestino (com distância e qtd_viagens) só no TAC-Agregado (B43/B44/B58);
+// - PesoCarga obrigatório na lotação (B65) e proibido na fracionada (B57) e no TAC-Agregado (B62).
 function montarEncerramento(ciot, tipo, f = {}) {
   const p = { CodigoIdentificacaoOperacao: codigoCiot(ciot) };
   if (tipo === 3) {
     p.OrigemDestino = origemDestino(f.origem_destino, { distancia: true, qtdViagens: true });
+  } else if (has(f.origem_destino) && (!Array.isArray(f.origem_destino) || f.origem_destino.length)) {
+    fail("OrigemDestino não deve ser informado no encerramento de lotação/fracionada (regra B44)");
   }
   if (tipo === 1) {
     p.DadosCarga = { PesoTotalCarga: dec(f.peso_carga, "PesoCarga", { max: 9999999.99 }) };
   } else if (has(f.peso_carga)) {
-    p.DadosCarga = { PesoTotalCarga: dec(f.peso_carga, "PesoCarga", { max: 9999999.99 }) };
+    fail(`PesoCarga não deve ser informado no encerramento de ${tipo === 2 ? "carga fracionada (regra B57)" : "TAC-Agregado (regra B62)"}`);
   }
   return p;
 }
 
 function montarConsultaCiot(id, ano) {
   const s = String(id ?? "");
-  if (!/^[A-Za-z0-9]{12}$/.test(s)) fail("CodigoIdentificacaoOperacao deve ter 12 caracteres");
+  if (!/^[0-9A-Z]{12}$/.test(s)) fail("CodigoIdentificacaoOperacao deve ter 12 caracteres");
   const o = { CodigoIdentificacaoOperacao: s };
   if (has(ano)) o.AnoDeclaracao = Number(ano);
   return o;
