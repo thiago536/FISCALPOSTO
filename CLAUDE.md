@@ -1,5 +1,7 @@
 # CLAUDE.md — contexto do PostoFiscal
 
+> **Retomando o trabalho (21/10/2026)?** Leia `docs/CONTINUAR.md` primeiro: próximo passo é testar o CIOT em homologação da ANTT com dados reais de uma transportadora. Repo é público: nunca gravar CNPJ, RNTRC, placa, nome ou senha reais em arquivos versionados.
+
 Leia isto antes de mexer no projeto. Visão completa (custos, arquitetura, pendências) em `docs/Relatorio-PostoFiscal.pdf` (fonte HTML em `docs/relatorio.html`).
 
 ## O que é
