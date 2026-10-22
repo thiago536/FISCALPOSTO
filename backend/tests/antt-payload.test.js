@@ -168,6 +168,62 @@ t("cancelamento/encerramento/consultas", () => {
   assert.deepStrictEqual(P.montarFrota({ ...{ interessado: "11222333000181", transportador: "52998224725", rntrc: "123456789" }, placas: ["abc1234"] }).Placas, ["ABC1234"]);
 });
 
+t("MDF-e infCIOT: responsável = ETC (contratado), não o cliente contratante", () => {
+  const focusPayload = require("../src/services/focusPayload");
+  const { infMdfe } = require("../src/services/xml");
+  const emp = { cnpj: "11.444.777/0001-61", uf: "PB" };
+  const ciotAntt = { numero: "ADM0000010005", contratado_doc: "11444777000161", contratante_doc: "11222333000181", contratante_nome: "X", motorista_cpf: "52998224725", valor_contrato: 100 };
+  const m = { placa: "ABC1D23" };
+  const item = focusPayload.mdfe(emp, m, [], [], [], ciotAntt).modal_rodoviario.ciot[0];
+  assert.strictEqual(item.cnpj_responsavel, "11444777000161");
+  assert.ok(!("cpf_responsavel" in item));
+  assert.notStrictEqual(item.cnpj_responsavel, "11222333000181");
+  assert.strictEqual(item.ciot, ciotAntt.numero.slice(0, 12));
+  // CIOT local (sem contratado_doc): cai no CNPJ da empresa.
+  const loc = focusPayload.mdfe(emp, m, [], [], [], { ...ciotAntt, contratado_doc: undefined }).modal_rodoviario.ciot[0];
+  assert.strictEqual(loc.cnpj_responsavel, "11444777000161");
+  // Responsável CPF (11 dígitos) usa cpf_responsavel.
+  const cpf = focusPayload.mdfe(emp, m, [], [], [], { ...ciotAntt, contratado_doc: "529.982.247-25" }).modal_rodoviario.ciot[0];
+  assert.strictEqual(cpf.cpf_responsavel, "52998224725");
+  assert.ok(!("cnpj_responsavel" in cpf));
+  const xml = infMdfe(emp, { rntrc: "12345678", emitido_em: new Date().toISOString() }, [], [], [], ciotAntt, "0".repeat(44));
+  assert.ok(/<infCIOT>\s*<CIOT>ADM000001000<\/CIOT>\s*<CNPJ>11444777000161<\/CNPJ>\s*<\/infCIOT>/.test(xml), "infCIOT sem CNPJ da ETC");
+});
+
+t("roteiro de homologação: validar offline; dado inválido sai com código != 0", () => {
+  const { spawnSync } = require("child_process");
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const script = path.join(__dirname, "../scripts/ciot-homologacao.js");
+  const env = { ...process.env, ANTT_PFX_PATH: "", ANTT_PFX_SENHA: "" };
+  const roda = (arq, cmd = "validar") => spawnSync(process.execPath, [script, cmd, arq], { env, encoding: "utf8" });
+  const exemplo = path.join(__dirname, "../../docs/ciot-homologacao.exemplo.json");
+  const ok = roda(exemplo);
+  assert.strictEqual(ok.status, 0, ok.stderr + ok.stdout);
+  assert.match(ok.stdout, /"IdOperacaoTransporte": "ADM000000001"/);
+  assert.match(ok.stdout, /"CpfCnpjContratado": "11444777000161"/);
+  // B111: origem município x destino CEP
+  const ruim = JSON.parse(fs.readFileSync(exemplo, "utf8"));
+  ruim.origem_destino[0].destino = { cep: "20040-020" };
+  const tmp = path.join(os.tmpdir(), `ciot-homolog-${process.pid}.json`);
+  fs.writeFileSync(tmp, JSON.stringify(ruim));
+  try {
+    const r = roda(tmp);
+    assert.notStrictEqual(r.status, 0);
+    assert.match(r.stderr, /B111/);
+  } finally {
+    fs.unlinkSync(tmp);
+  }
+  // executar recusa fora de homologação/antt, antes de qualquer rede ou banco.
+  const rec = spawnSync(process.execPath, [script, "executar", exemplo], { env: { ...env, ANTT_AMBIENTE: "producao", CIOT_PROVIDER: "antt" }, encoding: "utf8" });
+  assert.notStrictEqual(rec.status, 0);
+  assert.match(rec.stderr, /Recusado/);
+  const rec2 = spawnSync(process.execPath, [script, "executar", exemplo], { env: { ...env, ANTT_AMBIENTE: "homologacao", CIOT_PROVIDER: "local" }, encoding: "utf8" });
+  assert.notStrictEqual(rec2.status, 0);
+  assert.match(rec2.stderr, /Recusado/);
+});
+
 console.log(`${n} grupos ok`);
 
 // Fluxo pendente/emitido/rejeitado do controller, com db e antt stubados (sem rede).

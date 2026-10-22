@@ -455,3 +455,34 @@ select { cursor: pointer; }
   .stats-grid { grid-template-columns: 1fr; }
   .form-grid, .item-row { grid-template-columns: 1fr; }
 }
+
+/* CIOT modo ANTT */
+[hidden] { display: none !important; }
+.toast.warning { border-left: 3px solid var(--amber); }
+.form-antt select, .form-antt textarea {
+  width: 100%; padding: 10px 14px;
+  background: var(--bg-base); border: 1px solid var(--border-light);
+  border-radius: var(--radius); color: var(--text-primary); font-size: 14px;
+}
+.form-group textarea, .form-antt textarea {
+  width: 100%; padding: 10px 14px; font-family: inherit; resize: vertical;
+  background: var(--bg-base); border: 1px solid var(--border-light);
+  border-radius: var(--radius); color: var(--text-primary); font-size: 14px;
+}
+.form-group textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+.form-antt small { display: block; margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+.form-antt input[readonly] { opacity: 0.7; }
+.ciot-sec { margin: 8px 0 0; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border-light); padding-bottom: 4px; }
+.ciot-faixa { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 14px; margin-bottom: 14px; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius); font-size: 13px; }
+.ciot-faixa-erro { color: var(--red); font-weight: 600; }
+.ciot-erro { white-space: pre-line; background: var(--red-dim); color: var(--red); border: 1px solid rgba(239,68,68,0.2); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; }
+.aviso-amarelo { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: 13px; }
+.vei-row, .trecho-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 12px; align-items: end; margin-bottom: 8px; }
+.vei-row .form-group, .trecho-row .form-group { margin: 0; }
+.form-antt label.chk, .chk { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; font-size: 13px; color: var(--text-secondary); }
+.chk input { width: auto; }
+.ciot-expl { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.ciot-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.ciot-evid { margin-bottom: 12px; font-size: 12px; }
+.ciot-evid summary { cursor: pointer; color: var(--text-secondary); }
+.ciot-pre, .ciot-evid pre { background: var(--bg-base); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 10px; max-height: 260px; overflow: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; }

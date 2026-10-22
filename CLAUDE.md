@@ -17,10 +17,10 @@ cd backend
 cp .env.example .env     # Windows: copy
 npm install
 npm start                # http://localhost:3001 e IP da rede local
-npm run test:all         # test (42) + seguranca (12) + focus (17) + emissor (9) + antt + antt-mtls (40)
+npm run test:all         # test (43) + seguranca (12) + focus (17) + emissor (9) + antt (12 grupos) + antt-mtls (50) + frontend (20)
 ```
 
-`npm test` e `test:focus` sobem o próprio servidor com banco temporário (ou usam `BASE_URL`). `test:antt-mtls` precisa de `openssl` (Git for Windows serve). Rodar a suíte muitas vezes em 15 min esgota o limitador de login (12 tentativas) → reinicie o servidor.
+`test:frontend` roda sem servidor. `npm test` e `test:focus` sobem o próprio servidor com banco temporário (ou usam `BASE_URL`). `test:antt-mtls` precisa de `openssl` (Git for Windows serve). Rodar a suíte muitas vezes em 15 min esgota o limitador de login (12 tentativas) → reinicie o servidor.
 
 ## Modos de emissão (`backend/.env`)
 
@@ -38,7 +38,7 @@ npm run test:all         # test (42) + seguranca (12) + focus (17) + emissor (9)
 - `services/focusPayload.js` — converte registros internos no JSON da Focus (referência: campos.focusnfe.com.br). Numeração/série/chave vêm da Focus.
 - `services/emissor.js` — decide local×focus; fluxo **assíncrono**: grava `processando` antes do envio, `ref` na Focus = id interno, sincronizador a cada `FOCUS_POLL_MS`. Regras: status nunca regride (cancelada/encerrada são finais), consulta ignora documento com POST em andamento, 404 só vira `rejeitada` após `FOCUS_PRAZO_404_MS` (5 min), 408/429 são temporários, MDF-e rejeitado libera CIOT.
 - `services/antt.js` + `anttPayload.js` + `controllers/ciotController.js` — CIOT pelo **DCS PEF v1.1**, Web Service direto da ANTT como ETC em nome próprio (contratado = CNPJ do certificado, regra B115; operação com TAC exige Instituição de Pagamento). Grava `pendente` antes da rede; timeout/5xx/219 nunca viram rejeição; `GET /api/ciot/:id/consulta` recupera (297/220 → `nao_registrado` após margem). **Estado completo, regras com fonte, evidências de homologação e próximo passo: `docs/CIOT-STATUS.md`.**
-- Controllers NF-e/CT-e/MDF-e têm dois caminhos (local e real) no `emitir`; não quebre o modo local, os 42 testes dependem dele.
+- Controllers NF-e/CT-e/MDF-e têm dois caminhos (local e real) no `emitir`; não quebre o modo local, os 43 testes dependem dele.
 - Frontend: todo dado vindo do servidor passa por `esc()` antes de ir para innerHTML (houve XSS; não reintroduza).
 
 ## Estado (14/10/2026)
@@ -46,7 +46,7 @@ npm run test:all         # test (42) + seguranca (12) + focus (17) + emissor (9)
 - Código de emissão real pronto e testado contra mock da Focus (`tests/focus-mock.js`). **Nunca foi testado contra SEFAZ real.**
 - CIOT (15/10/2026): comunicação mTLS com a **homologação** da ANTT comprovada (respostas 297/207/220/205). **Nenhum CIOT gerado com sucesso** — falta ID do gerador oficial + RNTRC/placa reais. Ver `docs/CIOT-STATUS.md`.
 - Revisão de código feita; 6 achados corrigidos (XSS, duplicidade por corrida, regressão de status, CIOT preso, CIOT duplicado, vazamento de token).
-- Frontend novo ainda não foi exercitado no navegador.
+- Frontend exercitado no navegador em 17/10/2026: modo local (NF-e, CT-e, MDF-e, CIOT, cadastros) e CIOT no modo ANTT contra `scripts/dev-antt-mock.js` (emitir, rejeição, 219, consultar, encerrar, cancelar, verificar RNTRC). Checklist em `docs/CIOT-STATUS.md`.
 
 ## Pendências (ordem)
 

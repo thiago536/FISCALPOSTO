@@ -1,0 +1,25 @@
+{
+  "empresa_cnpj": "11444777000161",
+  "id_operacao": "ADM000000001",
+  "tipo_operacao": 1,
+  "contratante_nome": "CONTRATANTE FICTICIO LTDA",
+  "contratante_doc": "11222333000181",
+  "motorista_nome": "MOTORISTA FICTICIO",
+  "motorista_cpf": "52998224725",
+  "contratado_rntrc": "12345678",
+  "destinatario_doc": "52998224725",
+  "valor_contrato": 1000,
+  "valor_adiantamento": 0,
+  "data_inicio_viagem": "+1",
+  "data_fim_viagem": "+3",
+  "veiculos": [{ "placa": "ABC1D23", "eixos": 3 }],
+  "origem_destino": [
+    { "origem": { "municipio": "3550308" }, "destino": { "municipio": "3304557" }, "distancia": 430 }
+  ],
+  "carga": { "natureza": "0001", "peso": 25000, "tipo": 5 },
+  "forma_pagto": "PIX",
+  "chave_pix": "pix@exemplo.invalid",
+  "identificador_pix": "ID1",
+  "encerramento": { "peso_carga": 25000 },
+  "motivo_cancelamento": "Teste de homologacao"
+}

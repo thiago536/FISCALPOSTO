@@ -16,3 +16,6 @@ backend/.env
 backend/data/
 backend/logs/
 Thumbs.db
+.squad/
+ciot-homologacao*.json
+!docs/ciot-homologacao.exemplo.json

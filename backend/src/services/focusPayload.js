@@ -5,7 +5,7 @@
  * Número e série não são enviados: a Focus controla a numeração por empresa,
  * o que evita furo/duplicidade quando uma nota é rejeitada.
  */
-const { onlyDigits, dhEmi } = require("../utils/fiscal");
+const { onlyDigits, dhEmi, responsavelCiot } = require("../utils/fiscal");
 const { normalizarDoc, tipoDoc } = require("../utils/documentos");
 
 // Remove chaves vazias: a Focus valida "" como valor informado e rejeita.
@@ -166,6 +166,7 @@ function mdfe(e, m, condutores, percurso, documentos, ciot) {
   const nfes = documentos.filter((d) => d.tipo !== "cte").map((d) => ({ chave_nfe: d.chave }));
   const ctes = documentos.filter((d) => d.tipo === "cte").map((d) => ({ chave_cte: d.chave }));
   const tpEmit = Number(m.tipo_emitente) || (ctes.length ? 1 : 2);
+  const respCiot = ciot ? responsavelCiot(ciot, e) : null;
   return limpo({
     emitente: tpEmit,
     data_emissao: dhEmi(m.emitido_em),
@@ -193,7 +194,8 @@ function mdfe(e, m, condutores, percurso, documentos, ciot) {
       ciot: ciot ? [{
         // Layout do MDF-e aceita só os 12 dígitos do ID; no modo ANTT o número guardado inclui o DV.
         ciot: String(ciot.numero).slice(0, 12),
-        [tipoDoc(ciot.contratante_doc) === "CPF" ? "cpf_responsavel" : "cnpj_responsavel"]: normalizarDoc(ciot.contratante_doc),
+        // Responsável = ETC que gerou o CIOT (ver responsavelCiot; falta conferir com o MOC).
+        [respCiot.tipo === "CPF" ? "cpf_responsavel" : "cnpj_responsavel"]: respCiot.doc,
       }] : undefined,
       placa_veiculo: m.placa,
       renavam_veiculo: onlyDigits(m.renavam) || undefined,

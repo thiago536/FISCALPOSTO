@@ -1,4 +1,4 @@
-const { dvChave, normalizarDoc } = require("./documentos");
+const { dvChave, normalizarDoc, tipoDoc } = require("./documentos");
 
 function onlyDigits(v = "") {
   return String(v).replace(/\D/g, "");
@@ -64,6 +64,15 @@ function gerarNumeroCiot() {
   return Date.now().toString().slice(-10) + pad(Math.floor(Math.random() * 100), 2);
 }
 
+// Responsável pela geração do CIOT no MDF-e (infCIOT/CPF|CNPJ). Em operação ETC
+// é o CNPJ da ETC, ou seja, quem declarou (contratado, regra B115) — não o
+// cliente contratante nem o motorista. Fonte: docs/CIOT-STATUS.md pend. 5.
+// FALTA conferir com o MOC do MDF-e vigente (plano-ciot Q2).
+function responsavelCiot(ciot, empresa) {
+  const doc = normalizarDoc((ciot && ciot.contratado_doc) || (empresa && empresa.cnpj) || "");
+  return { doc, tipo: tipoDoc(doc) };
+}
+
 // dhEmi precisa do deslocamento real do fuso. Rotular um instante UTC como
 // -03:00 joga a emissão 3h no futuro e causa rejeição 703.
 function dhEmi(iso) {
@@ -96,5 +105,6 @@ module.exports = {
   sqlNow,
   dhEmi,
   gerarNumeroCiot,
+  responsavelCiot,
   FORMAS_PAGTO,
 };

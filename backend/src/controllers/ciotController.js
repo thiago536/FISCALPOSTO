@@ -59,7 +59,11 @@ const achar = (req) => get("ciot", (c) => c.id === req.params.id && c.empresa_id
 const cnpjEmpresa = (req) => normalizarDoc(get("empresas", (e) => e.id === req.user.empresa_id)?.cnpj || "");
 const ehAntt = (row) => row.provider === "antt";
 // "pendente" nunca é autorizado: oficial só para CIOT da ANTT já emitido.
-const apresentar = (row) => ({ ...row, oficial: ehAntt(row) && row.status === "emitido", simulado: !ehAntt(row) });
+// mdfe_status: o front só esconde "Cancelar" se o manifesto vinculado está autorizado.
+const apresentar = (row) => {
+  const mdfe = row.mdfe_id ? get("mdfe", (m) => m.id === row.mdfe_id) : null;
+  return { ...row, oficial: ehAntt(row) && row.status === "emitido", simulado: !ehAntt(row), mdfe_status: mdfe ? mdfe.status : null };
+};
 
 function trilha(req, row, operacao, de, para, { codigo, mensagem, proxima_acao } = {}) {
   auditFiscal({
@@ -127,13 +131,45 @@ function modoId() {
   return m;
 }
 
+// Evidência pesada (payload enviado, entrada normalizada, respostas brutas) só no detalhe.
+const CAMPOS_PESADOS = ["payload_declaracao", "entrada_antt", "resposta_antt", "resposta_consulta"];
+const resumo = (row) => {
+  const r = apresentar(row);
+  for (const k of CAMPOS_PESADOS) delete r[k];
+  return r;
+};
+exports.resumo = resumo;
+// Resposta bruta da ANTT guardada como evidência; texto cru é limitado.
+const limitar = (x) => (typeof x === "string" ? x.slice(0, 4000) : x);
+
+// Descoberta para o frontend: só dados não sensíveis (nunca caminho do PFX, senha ou URL base).
+exports.config = (req, res) => {
+  if (!antt.modoAntt()) return res.json({ provider: "local" });
+  const out = { provider: "antt", ambiente: antt.ambiente(), id_modo: null, empresa_cnpj: cnpjEmpresa(req) };
+  try {
+    out.id_modo = modoId();
+  } catch (e) {
+    out.erro_config = e.message;
+  }
+  try {
+    const c = antt.verificarCertificado();
+    out.certificado = { ok: true, cnpj: c.cnpj, valido_ate: c.valido_ate, icp_brasil: c.icp_brasil };
+  } catch (e) {
+    out.certificado = { ok: false, erro: e.message };
+  }
+  return res.json(out);
+};
+
 exports.listar = (req, res) => {
   const { placa, status } = req.query;
   let rows = all("ciot", (c) => c.empresa_id === req.user.empresa_id);
-  if (placa) rows = rows.filter((c) => (c.placa || "").includes(String(placa).toUpperCase()));
+  if (placa) {
+    const q = String(placa).toUpperCase();
+    rows = rows.filter((c) => (c.placa || "").includes(q) || (Array.isArray(c.veiculos) && c.veiculos.some((v) => String((v && v.placa) || "").includes(q))));
+  }
   if (status) rows = rows.filter((c) => c.status === status);
   rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  return res.json({ data: rows.slice(0, 200).map(apresentar), total: rows.length, formas: FORMAS_PAGTO });
+  return res.json({ data: rows.slice(0, 200).map(resumo), total: rows.length, formas: FORMAS_PAGTO });
 };
 
 exports.detalhe = (req, res) => {
@@ -154,7 +190,9 @@ exports.emitir = async (req, res) => {
 
 async function emitir(req, res) {
   const f = req.body || {};
-  if (!f.contratante_nome || !f.contratante_doc || !f.motorista_nome || !f.motorista_cpf || !f.placa) {
+  // Modo ANTT: a placa legada pode vir do primeiro veículo declarado.
+  const placaLegada = f.placa || (antt.modoAntt() && Array.isArray(f.veiculos) && f.veiculos[0] && f.veiculos[0].placa) || "";
+  if (!f.contratante_nome || !f.contratante_doc || !f.motorista_nome || !f.motorista_cpf || !placaLegada) {
     return res.status(400).json({ error: "Contratante, motorista e placa são obrigatórios" });
   }
   const valor = Number(f.valor_contrato);
@@ -190,7 +228,7 @@ async function emitir(req, res) {
     contratante_doc: onlyDigits(f.contratante_doc),
     motorista_nome: f.motorista_nome,
     motorista_cpf: onlyDigits(f.motorista_cpf),
-    placa: String(f.placa).toUpperCase().replace(/[^A-Z0-9]/g, ""),
+    placa: String(placaLegada).toUpperCase().replace(/[^A-Z0-9]/g, ""),
     valor_contrato: valor,
     valor_adiantamento: adiantamento,
     forma_pagto: f.forma_pagto || "PIX",
@@ -284,6 +322,17 @@ async function emitir(req, res) {
     data_inicio_viagem: payload.DataInicioViagem || null,
     data_fim_viagem: payload.DataFimViagem,
     declarado_em: new Date().toISOString(),
+    // Evidência para reenvio com o mesmo ID e para registrar o formato real da ANTT.
+    payload_declaracao: payload,
+    entrada_antt: {
+      ...dadosAntt(f, valor, empCnpj),
+      id_operacao: idOperacao,
+      contratante_nome: f.contratante_nome,
+      motorista_nome: f.motorista_nome,
+      motorista_cpf: onlyDigits(f.motorista_cpf),
+      valor_contrato: valor,
+      valor_adiantamento: adiantamento,
+    },
   });
   insert("ciot", row);
   registrarIdemp();
@@ -293,9 +342,10 @@ async function emitir(req, res) {
   // Só altera o registro se ele ainda estiver pendente (nunca sobrescreve estado posterior).
   const aindaPendente = (c) => c.id === id && c.status === "pendente";
   const extras = experimental ? { id_experimental: true, aviso: AVISO_ID_EXPERIMENTAL } : {};
+  let bruta; // resposta bruta da declaração (JSON ou texto), guardada como evidência
   const pend = (msg, codigo, extraPend = {}) => {
     const mensagem = `${msg} CIOT ${id} ficou pendente; use a consulta (GET /api/ciot/${id}/consulta) antes de emitir novamente.`;
-    update("ciot", aindaPendente, { mensagem_antt: msg, codigo_antt: codigo ?? null, ...extraPend });
+    update("ciot", aindaPendente, { mensagem_antt: msg, codigo_antt: codigo ?? null, ...(bruta !== undefined ? { resposta_antt: bruta } : {}), ...extraPend });
     trilha(req, row, "emitir", "pendente", "pendente", { codigo, mensagem: msg, proxima_acao: "consultar" });
     return res.status(502).json({ error: mensagem, id, status: "pendente", oficial: false, proxima_acao: "consultar", ...extras });
   };
@@ -304,18 +354,20 @@ async function emitir(req, res) {
   try {
     r = await antt.declarar(payload);
   } catch (e) {
+    if (e instanceof antt.AnttError && e.raw !== undefined) bruta = limitar(e.raw);
     if (!(e instanceof antt.AnttError) || e.tipo === "indeterminado") return pend(`Sem confirmação da ANTT (${e.message}).`, e.codigo);
     if (e.tipo === "rejeicao" && e.codigo === COD_ID_JA_CADASTRADO) {
       // O ID já existe na ANTT: pode ser desta mesma operação. Só a consulta decide.
       return pend(`ANTT informou que o IdOperacaoTransporte ${idOperacao} já está cadastrado (${e.message}).`, e.codigo, { id_ja_cadastrado: true });
     }
     const novo = e.tipo === "rejeicao" ? "rejeitado" : "nao_enviado";
-    update("ciot", aindaPendente, { status: novo, mensagem_antt: e.message, codigo_antt: e.codigo ?? null, protocolo: e.protocolo });
+    update("ciot", aindaPendente, { status: novo, mensagem_antt: e.message, codigo_antt: e.codigo ?? null, protocolo: e.protocolo, resposta_antt: bruta });
     const proxima = e.tipo === "rejeicao" ? "corrigir_e_reenviar" : "corrigir_configuracao";
     trilha(req, row, "emitir", "pendente", novo, { codigo: e.codigo, mensagem: e.message, proxima_acao: proxima });
     return erroAntt(res, e, { id, status: novo, oficial: false, proxima_acao: proxima, ...extras });
   }
 
+  bruta = limitar(r);
   const idRet = String(r.CodigoIdentificacaoOperacao ?? r.IdOperacaoTransporte ?? "").trim();
   // DV aceito só como veio (4 caracteres). Outra forma (ex.: número sem zeros à
   // esquerda) não é completada aqui: o CIOT completo vem da consulta oficial.
@@ -336,7 +388,7 @@ async function emitir(req, res) {
     }
   }
   if (!dv) {
-    update("ciot", aindaPendente, { protocolo: r.Protocolo });
+    update("ciot", aindaPendente, { protocolo: r.Protocolo, resposta_antt: bruta });
     return pend("ANTT não retornou o CIOT completo (código + verificador).", r.Codigo);
   }
   const patch = {
@@ -347,6 +399,7 @@ async function emitir(req, res) {
     codigo_antt: r.Codigo != null ? String(Array.isArray(r.Codigo) ? r.Codigo[0] : r.Codigo) : null,
     mensagem_antt: antt.textoMensagem(r.Mensagem),
     aviso_transportador: r.AvisoTransportador,
+    resposta_antt: bruta,
     emitido_em: new Date().toISOString(),
   };
   update("ciot", aindaPendente, patch);
@@ -537,6 +590,7 @@ async function consultar(req, res, row) {
   }
   const numero = String(r.CodigoIdentificacaoOperacao || "");
   const mensagem = antt.textoMensagem(r.Mensagem);
+  update("ciot", (c) => c.id === row.id, { resposta_consulta: limitar(r) });
   if (row.status === "pendente") {
     const confere = numero.length === 16 && /^[0-9A-Z]{16}$/.test(numero) && numero.startsWith(row.id_operacao);
     if (confere && row.id_ja_cadastrado && String((req.query || {}).confirmar) !== "1") {
@@ -568,7 +622,16 @@ async function consultar(req, res, row) {
     trilha(req, row, "consultar", "pendente", "pendente", { codigo: r.Codigo, mensagem: erro, proxima_acao: "verificar_com_antt" });
     return res.status(502).json({ error: erro, numero: numero || null, mensagem, status: "pendente", oficial: false, proxima_acao: "verificar_com_antt" });
   }
-  return res.json({ numero: numero || null, mensagem, status: row.status, oficial: apresentar(row).oficial });
+  const resp = { numero: numero || null, mensagem, status: row.status, oficial: apresentar(row).oficial };
+  if (numero && row.numero && numero !== row.numero) {
+    // Nunca troca o número guardado: só avisa. Quem decide é uma pessoa, junto à ANTT.
+    resp.divergencia = { local: row.numero, antt: numero };
+    resp.numero = row.numero;
+    resp.aviso = `ANTT devolveu CIOT ${numero}, diferente do CIOT guardado ${row.numero}. Número local mantido; verifique na ANTT.`;
+    update("ciot", (c) => c.id === row.id, { resposta_consulta: limitar({ ...r, divergencia: resp.divergencia }) });
+    trilha(req, row, "consultar", row.status, row.status, { codigo: r.Codigo, mensagem: resp.aviso, proxima_acao: "verificar_com_antt" });
+  }
+  return res.json(resp);
 }
 
 exports.situacaoTransportador = async (req, res) => {

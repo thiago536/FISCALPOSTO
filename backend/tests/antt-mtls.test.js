@@ -144,9 +144,9 @@ const roteirizar = (servico, ...passos) => (roteiro[servico] = passos);
     return r;
   };
   const user = { id: "u1", empresa_id: "emp1" };
-  const chamar = async (fn, { body = {}, params = {} } = {}) => {
+  const chamar = async (fn, { body = {}, params = {}, query = {} } = {}) => {
     const res = mk();
-    await C[fn]({ body, params, query: {}, user, correlacao: "corr-mtls" }, res);
+    await C[fn]({ body, params, query, user, correlacao: "corr-mtls" }, res);
     return res;
   };
   const P = require("../src/services/anttPayload");
@@ -651,6 +651,97 @@ const roteirizar = (servico, ...passos) => (roteiro[servico] = passos);
       assert.strictEqual(dois.row.numero, "ADM0000000400040");
     });
 
+    await t("config: provider antt, certificado ok, sem senha nem caminho do pfx, sem rede", async () => {
+      const req0 = recebidas.length;
+      const res = await chamar("config");
+      assert.strictEqual(res.code, 200);
+      assert.strictEqual(res.body.provider, "antt");
+      assert.strictEqual(res.body.ambiente, "homologacao");
+      assert.strictEqual(res.body.id_modo, "manual");
+      assert.strictEqual(res.body.empresa_cnpj, "11222333000181");
+      assert.strictEqual(res.body.certificado.ok, true);
+      assert.strictEqual(res.body.certificado.cnpj, "11222333000181");
+      assert.ok(res.body.certificado.valido_ate);
+      const txt = JSON.stringify(res.body);
+      assert.ok(!txt.includes(SENHA), "config vazou a senha");
+      assert.ok(!txt.includes(PFX_OK) && !txt.includes("valido.pfx"), "config vazou o caminho do pfx");
+      assert.strictEqual(recebidas.length, req0);
+    });
+
+    await t("config: senha errada -> certificado.ok false, sem senha; ANTT_ID_MODO inválido não dá 500", async () => {
+      const req0 = recebidas.length;
+      Object.assign(process.env, { ANTT_PFX_SENHA: "senha-ERRADA-999", ANTT_ID_MODO: "xyz" });
+      const res = await chamar("config");
+      Object.assign(process.env, { ANTT_PFX_SENHA: SENHA, ANTT_ID_MODO: "manual" });
+      assert.strictEqual(res.code, 200);
+      assert.strictEqual(res.body.certificado.ok, false);
+      assert.match(res.body.certificado.erro, /senha incorreta/);
+      assert.strictEqual(res.body.id_modo, null);
+      assert.ok(res.body.erro_config);
+      const txt = JSON.stringify(res.body);
+      assert.ok(!txt.includes("senha-ERRADA-999") && !txt.includes(SENHA));
+      assert.strictEqual(recebidas.length, req0);
+    });
+
+    await t("evidência: 110 guarda payload_declaracao e resposta_antt; 205 guarda resposta_antt", async () => {
+      const ok = linha(emitido.id);
+      assert.strictEqual(ok.payload_declaracao.IdOperacaoTransporte, "ADM000000003");
+      assert.strictEqual(ok.resposta_antt.Codigo, "110");
+      assert.strictEqual(ok.entrada_antt.id_operacao, "ADM000000003");
+      assert.strictEqual(ok.entrada_antt.contratante_nome, "CLIENTE CONTRATANTE LTDA");
+      assert.strictEqual(ok.entrada_antt.motorista_cpf, "52998224725");
+      assert.strictEqual(ok.entrada_antt.valor_contrato, 1000);
+      const rej = ciots().find((c) => c.id_operacao === "ADM000000005");
+      assert.strictEqual(rej.status, "rejeitado");
+      assert.ok(rej.resposta_antt && rej.resposta_antt.Protocolo === "P5");
+    });
+
+    await t("listar resume (sem payload/respostas); detalhe traz tudo", async () => {
+      const lista = await chamar("listar");
+      const item = lista.body.data.find((c) => c.id === emitido.id);
+      assert.ok(item);
+      for (const k of ["payload_declaracao", "entrada_antt", "resposta_antt", "resposta_consulta"]) assert.ok(!(k in item), k);
+      const det = await chamar("detalhe", { params: { id: emitido.id } });
+      assert.ok(det.body.payload_declaracao && det.body.entrada_antt && det.body.resposta_antt);
+    });
+
+    await t("consulta bem-sucedida guarda resposta_consulta", async () => {
+      roteirizar("ConsultarCIOTGerado", { status: 200, json: { CodigoIdentificacaoOperacao: "ADM0000000030042", Codigo: ["111"] } });
+      const res = await chamar("consultarGerado", { params: { id: emitido.id } });
+      assert.strictEqual(res.code, 200, JSON.stringify(res.body));
+      assert.strictEqual(linha(emitido.id).resposta_consulta.CodigoIdentificacaoOperacao, "ADM0000000030042");
+    });
+
+    await t("consulta com CIOT diferente do guardado: avisa divergência e mantém número", async () => {
+      roteirizar("ConsultarCIOTGerado", { status: 200, json: { CodigoIdentificacaoOperacao: "ADM0000000039999", Codigo: ["111"] } });
+      const res = await chamar("consultarGerado", { params: { id: emitido.id } });
+      assert.strictEqual(res.code, 200, JSON.stringify(res.body));
+      assert.deepStrictEqual(res.body.divergencia, { local: "ADM0000000030042", antt: "ADM0000000039999" });
+      assert.strictEqual(res.body.numero, "ADM0000000030042");
+      assert.strictEqual(linha(emitido.id).numero, "ADM0000000030042");
+      assert.strictEqual(linha(emitido.id).resposta_consulta.divergencia.antt, "ADM0000000039999");
+    });
+
+    await t("ANTT sem placa legada: usa 1ª placa de veiculos; filtro por 2ª placa acha", async () => {
+      roteirizar("DeclaracaoOperacaoTransporte", {
+        status: 200,
+        json: { CodigoIdentificacaoOperacao: "ADM0000000A1", CodigoVerificador: "0001", Protocolo: "PA1", Codigo: "110", Mensagem: "Dados inseridos" },
+      });
+      const { placa, ...semPlaca } = corpo("ADM0000000A1");
+      const res = await chamar("emitir", { body: semPlaca });
+      assert.strictEqual(res.code, 201, JSON.stringify(res.body));
+      assert.strictEqual(linha(res.body.id).placa, "ABC1D23");
+      const lista = await chamar("listar", { query: { placa: "xyz9a88" } });
+      assert.ok(lista.body.data.some((c) => c.id === res.body.id));
+      const nenhum = await chamar("listar", { query: { placa: "ZZZ0Z00" } });
+      assert.strictEqual(nenhum.body.data.length, 0);
+    });
+
+    await t("banco em disco não contém a senha do certificado", async () => {
+      const arqDb = fs.readFileSync(path.join(arq("data"), "fiscal.json"), "utf8");
+      assert.ok(!arqDb.includes(SENHA));
+    });
+
     await t("trilha fiscal com correlação e provedor", async () => {
       const logs = db.all("audit_logs", (a) => a.tipo === "fiscal" && a.entidade === "ciot");
       assert.ok(logs.length > 0);
@@ -658,6 +749,85 @@ const roteirizar = (servico, ...passos) => (roteiro[servico] = passos);
       assert.ok(logs.some((a) => a.status_anterior === "pendente" && a.status_novo === "emitido"));
       assert.ok(logs.some((a) => a.status_novo === "rejeitado" && a.codigo === "205"));
       assert.ok(!JSON.stringify(logs).includes(SENHA));
+    });
+
+    await t("T6: corpo de montarCorpoCiotAntt (frontend) -> 110 -> emitido (nomes de campo batem)", async () => {
+      const { montarCorpoCiotAntt } = require("../../frontend/src/ciot.js");
+      const corpoFront = montarCorpoCiotAntt({
+        id_operacao: "adm000000060", // o front põe em maiúsculas
+        tipo_operacao: 1,
+        contratante_nome: "CLIENTE CONTRATANTE LTDA",
+        contratante_doc: "11444777000161",
+        contratado_doc: "11222333000181",
+        contratado_rntrc: "12345678",
+        destinatario_doc: "52998224725",
+        motorista_nome: "MOTORISTA",
+        motorista_cpf: "52998224725",
+        valor_contrato: "1000",
+        valor_adiantamento: "0",
+        veiculos: [{ placa: "ABC1D23", eixos: "3" }, { placa: "XYZ9A88", eixos: "3" }],
+        data_inicio_viagem: diaSP(1),
+        data_fim_viagem: diaSP(3),
+        tipo_localizacao: "municipio",
+        trechos: [{ origem: { municipio: "2507507" }, destino: { municipio: "3550308" }, distancia: "2700" }],
+        carga_natureza: "0001",
+        carga_tipo: "5",
+        carga_peso: "25000",
+        tipo_pagamento: 6,
+        chave_pix: "a@b.com",
+        identificador_pix: "ID1",
+      });
+      roteirizar("DeclaracaoOperacaoTransporte", {
+        status: 200,
+        json: { CodigoIdentificacaoOperacao: "ADM000000060", CodigoVerificador: "0060", Codigo: "110" },
+      });
+      const res = await chamar("emitir", { body: corpoFront });
+      assert.strictEqual(res.code, 201, JSON.stringify(res.body));
+      assert.strictEqual(linha(res.body.id).status, "emitido");
+      assert.strictEqual(res.body.numero, "ADM0000000600060");
+    });
+
+    await t("T9: situacaoTransportador e frota — 200 repassa JSON; 207 -> 400 com código; local -> 400", async () => {
+      const resp = { Codigo: ["110"], Situacao: "ATIVO", Extra: { a: 1 } };
+      roteirizar("ConsultarSituacaoTransportador", { status: 200, json: resp });
+      let r = await chamar("situacaoTransportador", { query: { doc: "11222333000181", rntrc: "12345678" } });
+      assert.strictEqual(r.code, 200, JSON.stringify(r.body));
+      assert.deepStrictEqual(r.body, resp);
+      let enviado = recebidas[recebidas.length - 1];
+      assert.strictEqual(enviado.servico, "ConsultarSituacaoTransportador");
+      assert.strictEqual(enviado.body.CpfCnpjInteressado, "11222333000181");
+      assert.strictEqual(enviado.body.RNTRCTransportador, "012345678"); // montarSituacao completa para 9 dígitos
+
+      roteirizar("ConsultarSituacaoTransportador", { status: 200, json: { Codigo: ["207"], Mensagem: ["Transportador não encontrado"] } });
+      r = await chamar("situacaoTransportador", { query: { doc: "11222333000181", rntrc: "12345678" } });
+      assert.strictEqual(r.code, 400, JSON.stringify(r.body));
+      assert.strictEqual(r.body.codigo, "207");
+
+      const bf = { doc: "11222333000181", rntrc: "12345678", placas: ["ABC1D23", "XYZ9A88"] };
+      roteirizar("ConsultarFrotaTransportador", { status: 200, json: { Codigo: ["110"], Placas: ["ABC1D23"] } });
+      r = await chamar("frota", { body: bf });
+      assert.strictEqual(r.code, 200, JSON.stringify(r.body));
+      assert.deepStrictEqual(r.body, { Codigo: ["110"], Placas: ["ABC1D23"] });
+      enviado = recebidas[recebidas.length - 1];
+      assert.strictEqual(enviado.servico, "ConsultarFrotaTransportador");
+      assert.deepStrictEqual(enviado.body.Placas, ["ABC1D23", "XYZ9A88"]);
+
+      roteirizar("ConsultarFrotaTransportador", { status: 200, json: { Codigo: ["207"], Mensagem: ["Placa não vinculada"] } });
+      r = await chamar("frota", { body: bf });
+      assert.strictEqual(r.code, 400, JSON.stringify(r.body));
+      assert.strictEqual(r.body.codigo, "207");
+
+      process.env.CIOT_PROVIDER = "local";
+      const req0 = recebidas.length;
+      try {
+        r = await chamar("situacaoTransportador", { query: { doc: "11222333000181", rntrc: "12345678" } });
+        assert.strictEqual(r.code, 400);
+        r = await chamar("frota", { body: bf });
+        assert.strictEqual(r.code, 400);
+      } finally {
+        process.env.CIOT_PROVIDER = "antt";
+      }
+      assert.strictEqual(recebidas.length, req0);
     });
 
     console.log(`${n} cenários mTLS ok`);

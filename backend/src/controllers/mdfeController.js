@@ -8,6 +8,7 @@ const emissor = require("../services/emissor");
 const focusPayload = require("../services/focusPayload");
 const { exigirEmpresaApta } = require("../services/validacaoFiscal");
 const C = require("./comum");
+const ciotCtrl = require("./ciotController");
 const { audit, auditFiscal } = require("../services/audit");
 
 function paginar(rows, page, limit) {
@@ -36,12 +37,14 @@ exports.detalhe = async (req, res) => {
   if (mdfe.status === "processando" && !mdfe.simulado && emissor.modo() === "focus") {
     mdfe = await emissor.sincronizar("mdfe", mdfe.id, C.ctxDe(req));
   }
+  const ciotRow = mdfe.ciot_id ? get("ciot", (c) => c.id === mdfe.ciot_id && c.empresa_id === mdfe.empresa_id) : null;
   return res.json({
     mdfe,
     condutores: all("mdfe_condutores", (c) => c.mdfe_id === mdfe.id),
     percurso: all("mdfe_percurso", (c) => c.mdfe_id === mdfe.id).sort((a, b) => a.ordem - b.ordem),
     documentos: all("mdfe_docs", (c) => c.mdfe_id === mdfe.id),
-    ciot: mdfe.ciot_id ? get("ciot", (c) => c.id === mdfe.ciot_id && c.empresa_id === mdfe.empresa_id) : null,
+    // resumo: sem payload/entrada (dados bancários/Pix) nem respostas brutas da ANTT.
+    ciot: ciotRow ? ciotCtrl.resumo(ciotRow) : null,
   });
 };
 

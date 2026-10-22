@@ -3,6 +3,7 @@ const { auth } = require("../middleware/auth");
 const { a } = require("../utils/rota");
 const ctrl = require("../controllers/ciotController");
 router.get("/", auth, a(ctrl.listar));
+router.get("/config", auth, a(ctrl.config));
 router.get("/transportador", auth, a(ctrl.situacaoTransportador));
 router.post("/frota", auth, a(ctrl.frota));
 router.get("/:id", auth, a(ctrl.detalhe));

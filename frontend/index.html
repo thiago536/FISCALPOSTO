@@ -197,9 +197,11 @@
             <strong>Código Identificador da Operação de Transporte</strong>
           </div>
           <p style="font-size:13px;color:var(--text-secondary)">
-            Obrigatório no contrato de frete com TAC. O número gerado entra no MDF-e (grupo infANTT/infCIOT).
-            Em produção a numeração deve vir da administradora credenciada na ANTT.
+            Exigido em toda operação de transporte rodoviário remunerado de carga (Res. ANTT 6.078/2026); operação com TAC ou
+            equiparado exige Instituição de Pagamento (Portaria SUROC 6/2026). O número gerado entra no MDF-e (grupo infANTT/infCIOT).
+            Modo local gera número SIMULADO, sem validade legal; modo ANTT declara na ANTT (homologação não tem validade jurídica).
           </p>
+          <p id="ciot-modo" style="font-size:12px;color:var(--text-muted);margin-top:6px"></p>
         </div>
         <div class="table-card">
           <div class="table-header"><h3>Operações CIOT</h3></div>
@@ -289,6 +291,8 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<script src="src/esc.js"></script>
+<script src="src/ciot.js"></script>
 <script src="src/app.js"></script>
 </body>
 </html>

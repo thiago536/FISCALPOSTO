@@ -2,31 +2,19 @@
 let token = localStorage.getItem("sf_token");
 let currentUser = JSON.parse(localStorage.getItem("sf_user") || "null");
 let currentPage = "dashboard";
-let cache = { clientes: [], produtos: [], ciots: [] };
+let cache = { clientes: [], produtos: [], ciots: [], ciotConfig: null };
 
-function esc(v) {
-  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+// esc() e fmt() vêm de src/esc.js; helpers puros do CIOT de src/ciot.js (carregados antes).
 
-function fmt(val, type = "str") {
-  if (val === null || val === undefined || val === "") return "—";
-  if (type === "money") return esc("R$ " + Number(val).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
-  if (type === "date") {
-    const d = String(val).slice(0, 10);
-    return esc(d.split("-").reverse().join("/"));
-  }
-  return esc(val);
-}
-
-function badgeStatus(s) {
+function badgeStatus(s, label) {
   const map = {
     autorizada: "green", autorizado: "green", emitido: "green",
     rejeitada: "red", cancelada: "red", cancelado: "red",
     rejeitado: "red", nao_enviado: "red", nao_registrado: "red",
-    encerrada: "blue", encerrado: "blue", rascunho: "amber", processando: "blue",
+    encerrada: "blue", encerrado: "blue", rascunho: "amber", processando: "blue", pendente: "amber",
   };
   const cls = map[s] || "amber";
-  return `<span class="badge ${cls}">${esc(s || "pendente")}</span>`;
+  return `<span class="badge ${cls}">${esc(label || s || "pendente")}</span>`;
 }
 
 let pollTimer = null;
@@ -52,7 +40,7 @@ function showToast(msg, type = "success") {
   const t = document.getElementById("toast");
   t.textContent = msg;
   t.className = `toast ${type} show`;
-  setTimeout(() => { t.className = "toast"; }, 3500);
+  setTimeout(() => { t.className = "toast"; }, type === "success" ? 3500 : 7000);
 }
 
 async function apiFetch(path, opts = {}) {
@@ -66,7 +54,13 @@ async function apiFetch(path, opts = {}) {
     return r.blob();
   }
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || "Erro na API");
+  if (!r.ok) {
+    // .message continua igual; .status e .data (corpo JSON) servem a quem precisa do detalhe (ex.: CIOT).
+    const err = new Error(data.error || "Erro na API");
+    err.status = r.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -138,16 +132,20 @@ function navigateTo(page) {
     nfe: `<button class="btn btn-primary" id="btn-nova-nfe">Nova NF-e</button>`,
     cte: `<button class="btn btn-primary" id="btn-nova-cte">Novo CT-e</button>`,
     mdfe: `<button class="btn btn-primary" id="btn-novo-mdfe">Novo MDF-e</button>`,
-    ciot: `<button class="btn btn-primary" id="btn-novo-ciot">Emitir CIOT</button>`,
+    ciot: `<button class="btn btn-primary" id="btn-novo-ciot">Emitir CIOT</button> <button class="btn btn-ghost btn-sm" id="btn-verificar-ciot" hidden>Verificar RNTRC/frota</button>`,
     clientes: `<button class="btn btn-primary" id="btn-novo-cli">Novo cliente</button>`,
     produtos: `<button class="btn btn-primary" id="btn-novo-prod">Novo produto</button>`,
   };
   bar.innerHTML = (actions[page] || "") + ` <button class="btn btn-ghost btn-sm" id="btn-refresh">Atualizar</button>`;
-  bar.querySelector("#btn-refresh")?.addEventListener("click", () => loadPage(page));
+  bar.querySelector("#btn-refresh")?.addEventListener("click", () => {
+    if (page === "ciot") cache.ciotConfig = null; // recarrega ambiente/certificado
+    loadPage(page);
+  });
   bar.querySelector("#btn-nova-nfe")?.addEventListener("click", openNfeForm);
   bar.querySelector("#btn-nova-cte")?.addEventListener("click", openCteForm);
   bar.querySelector("#btn-novo-mdfe")?.addEventListener("click", openMdfeForm);
-  bar.querySelector("#btn-novo-ciot")?.addEventListener("click", openCiotForm);
+  bar.querySelector("#btn-novo-ciot")?.addEventListener("click", () => openCiotForm());
+  bar.querySelector("#btn-verificar-ciot")?.addEventListener("click", openVerificarCiot);
   bar.querySelector("#btn-novo-cli")?.addEventListener("click", openCliForm);
   bar.querySelector("#btn-novo-prod")?.addEventListener("click", openProdForm);
   loadPage(page);
@@ -280,12 +278,23 @@ document.getElementById("mdfe-search-btn").addEventListener("click", () => loadM
 // Só CIOT confirmado pela ANTT (oficial) aparece como número de CIOT. Pendente
 // mostra o ID da operação, que NÃO é CIOT; simulado leva aviso explícito.
 function ciotNumeroCell(c) {
+  const hml = c.ambiente === "homologacao" ? ' <span class="badge amber" title="Homologação: sem validade jurídica">HML</span>' : "";
   if (c.numero) {
-    const tag = c.simulado ? ' <span class="badge amber">SIMULADO</span>' : c.oficial ? ' <span class="badge green">ANTT</span>' : "";
-    return `<strong>${esc(c.numero)}</strong>${tag}`;
+    const tag = c.simulado ? ' <span class="badge amber">SIMULADO</span>' : (c.provider === "antt" && ["emitido", "encerrado", "cancelado"].includes(c.status)) ? ' <span class="badge green">ANTT</span>' : "";
+    return `<strong>${esc(c.numero)}</strong>${tag}${hml}`;
   }
-  if (c.id_operacao) return `<span title="Identificador da operação; não é o CIOT">ID op. ${esc(c.id_operacao)} (sem CIOT)</span>`;
+  if (c.id_operacao) return `<span title="Identificador da operação; não é o CIOT">ID op. ${esc(c.id_operacao)} (sem CIOT)</span>${hml}`;
   return "—";
+}
+
+function placasCiot(c) {
+  return Array.isArray(c.veiculos) && c.veiculos.length ? esc(c.veiculos.map((v) => v.placa).join(", ")) : fmt(c.placa);
+}
+
+// Configuração do provedor (1x por sessão; o botão Atualizar zera o cache).
+async function carregarCiotConfig() {
+  if (!cache.ciotConfig) cache.ciotConfig = await apiFetch("/ciot/config");
+  return cache.ciotConfig;
 }
 
 async function loadCiot() {
@@ -294,13 +303,161 @@ async function loadCiot() {
     const data = await apiFetch("/ciot");
     cache.ciots = data.data;
     tbody.innerHTML = data.data.map((c) => `
-      <tr>
-        <td>${ciotNumeroCell(c)}</td><td>${fmt(c.placa)}</td>
+      <tr data-id="${esc(c.id)}" style="cursor:pointer">
+        <td>${ciotNumeroCell(c)}</td><td>${placasCiot(c)}</td>
         <td>${fmt(c.contratante_nome)}</td><td>${fmt(c.motorista_nome)}</td>
         <td>${fmt(c.valor_contrato, "money")}</td>
-        <td>${fmt(c.forma_pagto)}</td><td>${badgeStatus(c.status)}</td>
+        <td>${fmt(c.forma_pagto)}</td>
+        <td>${badgeStatus(c.status, rotuloStatusCiot(c.status))}${c.operacao_pendente ? ' <span class="badge amber">op. pendente</span>' : ""}</td>
       </tr>`).join("") || emptyRow(7, "Nenhum CIOT");
+    tbody.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => openCiotDetail(tr.dataset.id)));
   } catch (ex) { tbody.innerHTML = emptyRow(7, ex.message); }
+  const modo = document.getElementById("ciot-modo");
+  const verif = document.getElementById("btn-verificar-ciot");
+  try {
+    const cfg = await carregarCiotConfig();
+    if (verif) verif.hidden = cfg.provider !== "antt";
+    if (modo) {
+      modo.textContent = cfg.provider === "antt"
+        ? `Modo ANTT (${cfg.ambiente === "producao" ? "PRODUÇÃO" : "HOMOLOGAÇÃO — sem validade jurídica"}).`
+        : "Modo local: números SIMULADOS, sem registro na ANTT e sem validade legal.";
+    }
+  } catch { /* sem config: segue como modo local */ }
+}
+
+// ---------- CIOT: detalhe e ações ----------
+function erroModal(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg; // textContent: mensagem do servidor nunca vira HTML
+  el.hidden = false;
+}
+
+async function recarregarCiot(id) {
+  await loadCiot();
+  await openCiotDetail(id);
+}
+
+async function openCiotDetail(id) {
+  let c;
+  try { c = await apiFetch("/ciot/" + id); } catch (ex) { return showToast(ex.message, "error"); }
+  openPanel("CIOT", detalheCiotHtml(c));
+  document.querySelectorAll("#detail-body [data-ciot-acao]").forEach((btn) =>
+    btn.addEventListener("click", () => acaoCiot(btn.dataset.ciotAcao, c)));
+  return undefined;
+}
+
+function acaoCiot(acao, c) {
+  if (acao === "consultar") return consultarCiot(c, false);
+  if (acao === "encerrar") return modalEncerrarCiot(c);
+  if (acao === "cancelar") return modalCancelarCiot(c);
+  if (acao === "reenviar") { closePanel(); return openCiotForm({ prefill: c }); }
+  return undefined;
+}
+
+// Cada consulta é uma chamada à ANTT: nunca automática, só por clique.
+async function consultarCiot(c, confirmar) {
+  try {
+    const r = await apiFetch(`/ciot/${c.id}/consulta${confirmar ? "?confirmar=1" : ""}`);
+    if (r.divergencia) showToast(`ATENÇÃO: a ANTT devolveu o CIOT ${r.divergencia.antt}, diferente do guardado (${r.divergencia.local}). Número local mantido; verifique na ANTT.`, "warning");
+    else showToast(r.numero && r.oficial ? `Consulta: CIOT ${r.numero} (${rotuloStatusCiot(r.status)})` : `Consulta: ${rotuloStatusCiot(r.status)}`);
+  } catch (ex) {
+    const d = ex.data || {};
+    if (ex.status === 409 && d.proxima_acao === "confirmar_com_antt") {
+      // 219: o ID já existia na ANTT antes desta declaração; só uma pessoa decide se é esta operação.
+      if (window.confirm(`${ex.message}\n\nCIOT devolvido pela ANTT: ${d.numero || "—"}\n\nConfirmar que este CIOT é desta operação?`)) {
+        return consultarCiot(c, true);
+      }
+      return undefined;
+    }
+    const aviso = (ex.status === 409 && d.proxima_acao === "consultar_novamente") || (ex.status === 404 && d.proxima_acao === "reenviar_mesmo_id") || (ex.status === 409 && !d.proxima_acao);
+    showToast(ex.message, aviso ? "warning" : "error");
+  }
+  return recarregarCiot(c.id);
+}
+
+function modalEncerrarCiot(c) {
+  const tipo = Number(c.tipo_operacao);
+  if (tipo === 3) return showToast("Encerramento de TAC-Agregado não está disponível na interface.", "warning");
+  openModal("Encerrar CIOT", `
+    <form id="form-enc-ciot" class="form-grid">
+      ${tipo === 1
+        ? `<div class="form-group span-2"><label>Peso total da carga (kg)</label><input id="enc-ciot-peso" type="number" min="0.01" step="0.01" required></div>`
+        : `<p class="span-2" style="font-size:13px">Carga fracionada: o encerramento não informa peso (regra B57).</p>`}
+      <div class="span-2 ciot-erro" id="enc-ciot-erro" hidden></div>
+      <button class="btn btn-primary span-2" type="submit">Encerrar na ANTT</button>
+    </form>`);
+  document.getElementById("form-enc-ciot").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const body = tipo === 1 ? { peso_carga: Number(val("enc-ciot-peso")) } : {};
+    await operarCiot(c, "encerrar", body, "enc-ciot-erro", "CIOT encerrado");
+  });
+  return undefined;
+}
+
+function modalCancelarCiot(c) {
+  const antt = c.provider === "antt";
+  openModal(antt ? "Cancelar CIOT" : "Cancelar CIOT simulado", `
+    <form id="form-canc-ciot" class="form-grid">
+      ${antt
+        ? `<div class="form-group span-2"><label>Motivo do cancelamento (até 500 caracteres)</label><textarea id="canc-ciot-motivo" rows="4" maxlength="500" required></textarea></div>`
+        : `<p class="span-2" style="font-size:13px">O CIOT é simulado (modo local): o cancelamento só altera o registro interno.</p>`}
+      <div class="span-2 ciot-erro" id="canc-ciot-erro" hidden></div>
+      <button class="btn btn-primary span-2" type="submit">Confirmar cancelamento</button>
+    </form>`);
+  document.getElementById("form-canc-ciot").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    await operarCiot(c, "cancelar", antt ? { motivo: val("canc-ciot-motivo").trim() } : {}, "canc-ciot-erro", "CIOT cancelado");
+  });
+}
+
+async function operarCiot(c, rota, body, idErro, msgOk) {
+  try {
+    await apiFetch(`/ciot/${c.id}/${rota}`, { method: "POST", body: JSON.stringify(body) });
+    showToast(msgOk);
+  } catch (ex) {
+    const st = ex.data && ex.data.status;
+    if (ex.status === 409 && (st === "encerrado" || st === "cancelado")) {
+      // 222/251: a ANTT diz que já está nesse estado; o backend já atualizou o registro.
+      showToast(ex.message, "warning");
+    } else {
+      erroModal(idErro, ex.message);
+      // status mudou ou operação ficou pendente: a lista/painel precisam refletir
+      if (ex.data && (ex.data.operacao_pendente || (st && st !== c.status))) await loadCiot();
+      return undefined;
+    }
+  }
+  closeModal();
+  return recarregarCiot(c.id);
+}
+
+// Consulta de RNTRC/frota antes de declarar (só no modo ANTT).
+async function openVerificarCiot() {
+  let cfg = {};
+  try { cfg = await carregarCiotConfig(); } catch { /* segue com campos vazios */ }
+  openModal("Verificar RNTRC / frota na ANTT", `
+    <form id="form-verif" class="form-grid">
+      <div class="form-group"><label>CPF/CNPJ do transportador</label><input id="verif-doc" value="${esc(cfg.empresa_cnpj || "")}"></div>
+      <div class="form-group"><label>RNTRC</label><input id="verif-rntrc" inputmode="numeric"></div>
+      <div class="form-group span-2"><label>Placas (separadas por espaço ou vírgula; só para a frota)</label><input id="verif-placas"></div>
+      <button type="button" class="btn btn-primary" id="verif-transp">Consultar transportador</button>
+      <button type="button" class="btn btn-ghost" id="verif-frota">Consultar frota</button>
+      <pre class="span-2 ciot-pre" id="verif-out" hidden></pre>
+    </form>`);
+  const out = document.getElementById("verif-out");
+  const mostrar = (o) => { out.innerHTML = esc(typeof o === "string" ? o : JSON.stringify(o, null, 2)); out.hidden = false; };
+  const falha = (ex) => mostrar(ex.message + (ex.data ? "\n" + JSON.stringify(ex.data, null, 2) : ""));
+  document.getElementById("form-verif").addEventListener("submit", (ev) => ev.preventDefault());
+  document.getElementById("verif-transp").addEventListener("click", async () => {
+    try {
+      mostrar(await apiFetch("/ciot/transportador?" + new URLSearchParams({ doc: val("verif-doc"), rntrc: val("verif-rntrc") })));
+    } catch (ex) { falha(ex); }
+  });
+  document.getElementById("verif-frota").addEventListener("click", async () => {
+    try {
+      const placas = val("verif-placas").split(/[\s,;]+/).filter(Boolean);
+      mostrar(await apiFetch("/ciot/frota", { method: "POST", body: JSON.stringify({ doc: val("verif-doc"), rntrc: val("verif-rntrc"), placas }) }));
+    } catch (ex) { falha(ex); }
+  });
 }
 
 async function loadClientes() {
@@ -707,7 +864,13 @@ async function openCteForm() {
 async function openMdfeForm() {
   await ensureCadastros();
   const ciotOpts = cache.ciots.filter((c) => c.status === "emitido" && !c.mdfe_id)
-    .map((c) => `<option value="${esc(c.id)}">${esc(c.numero)} — ${esc(c.placa)}</option>`).join("");
+    .map((c) => {
+      const antt = c.provider === "antt";
+      const placas = Array.isArray(c.veiculos) && c.veiculos.length ? c.veiculos.map((v) => v.placa).join(", ") : c.placa;
+      // data-placa: 1ª placa declarada no CIOT da ANTT (o MDF-e só aceita placa declarada)
+      const p1 = antt && c.veiculos && c.veiculos[0] ? c.veiculos[0].placa : "";
+      return `<option value="${esc(c.id)}" data-placa="${esc(p1)}">${esc(c.numero)} — ${esc(placas)} [${antt ? "ANTT" : "SIMULADO"}]</option>`;
+    }).join("");
   openModal("Emitir MDF-e", `
     <form id="form-mdfe" class="form-grid">
       <div class="form-group"><label>UF início</label><input id="mdfe-ufini" maxlength="2" required></div>
@@ -732,6 +895,10 @@ async function openMdfeForm() {
       </div>
       <button class="btn btn-primary span-2" type="submit">Emitir e autorizar</button>
     </form>`);
+  document.getElementById("mdfe-ciot").addEventListener("change", (e) => {
+    const p = e.target.selectedOptions[0] && e.target.selectedOptions[0].dataset.placa;
+    if (p) document.getElementById("mdfe-placa").value = p;
+  });
   document.getElementById("form-mdfe").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const docs = val("mdfe-docs").split(/\s+/).filter(Boolean).map((l) => ({
@@ -759,7 +926,154 @@ async function openMdfeForm() {
   });
 }
 
-function openCiotForm() {
+async function openCiotForm(opts = {}) {
+  let cfg;
+  try {
+    cfg = await carregarCiotConfig();
+  } catch (ex) {
+    showToast("Não foi possível ler a configuração do CIOT (" + ex.message + "); usando o formulário local.", "warning");
+    cfg = { provider: "local" };
+  }
+  if (cfg.provider === "antt") return openCiotFormAntt(cfg, opts);
+  return openCiotFormLocal();
+}
+
+function lerCamposCiot(form) {
+  const fd = new FormData(form); // campos ocultos ficam disabled e não entram
+  const c = Object.fromEntries(fd.entries());
+  ["alto_desempenho", "retorno_vazio", "composicao_veicular", "contingencia"].forEach((k) => { c[k] = fd.has(k); });
+  c.veiculos = [...form.querySelectorAll(".vei-row")].map((r) => ({
+    placa: r.querySelector(".v-placa").value, eixos: r.querySelector(".v-eixos").value, rntrc: r.querySelector(".v-rntrc").value,
+  }));
+  c.trechos = [...form.querySelectorAll(".trecho-row")].map((r) => {
+    const t = { origem: {}, destino: {} };
+    r.querySelectorAll("[data-k]").forEach((el) => {
+      if (el.disabled) return;
+      const [a, b] = el.dataset.k.split(".");
+      if (b) t[a][b] = el.value; else t[a] = el.value;
+    });
+    return t;
+  });
+  return c;
+}
+
+function openCiotFormAntt(cfg, opts) {
+  // Idempotency-Key nasce ao abrir o modal e é trocada após resposta definitiva
+  // (senão o reenvio corrigido devolveria a linha rejeitada antiga).
+  let chave = novaChaveIdempotencia();
+  const prefill = opts.prefill || null;
+  let campos = {};
+  let avisos = [];
+  if (prefill) {
+    if (prefill.entrada_antt) ({ campos, avisos } = camposDeEntrada(prefill.entrada_antt));
+    else avisos = ["Dados da declaração anterior indisponíveis: preencha de novo."];
+    campos.id_operacao = prefill.id_operacao;
+  }
+  const faixa = faixaCiot(cfg);
+  openModal("Emitir CIOT — ANTT", faixa.html + formCiotAnttHtml(cfg, campos, { reenvio: !!prefill, avisos }));
+  const form = document.getElementById("form-ciot-antt");
+  const btn = document.getElementById("ciot-enviar");
+  const bloquear = () => {
+    btn.disabled = !!faixa.bloqueio;
+    if (faixa.bloqueio) btn.textContent = "Emissão indisponível: " + faixa.bloqueio;
+  };
+  bloquear();
+
+  const valorCampo = (nome) => {
+    const el = form.elements[nome];
+    if (!el) return "";
+    return el.type === "checkbox" ? (el.checked ? "on" : "") : el.value;
+  };
+  // Blocos condicionais: oculto = desabilitado (fora da validação e do envio).
+  const aplicarCondicoes = () => {
+    form.querySelectorAll("[data-show-if]").forEach((box) => {
+      const [campo, vals] = box.dataset.showIf.split("=");
+      const ok = vals.split(",").includes(valorCampo(campo));
+      box.hidden = !ok;
+      box.querySelectorAll("input,select,textarea").forEach((el) => {
+        el.disabled = !ok;
+        if (el.hasAttribute("data-req")) el.required = ok;
+      });
+    });
+  };
+  // Contingência libera datas fora da janela de hoje a +30 dias (B6/B22 não valem).
+  const aplicarJanelaData = () => {
+    const el = form.elements.data_inicio_viagem;
+    if (!el || !el.dataset.min) return;
+    const cont = valorCampo("contingencia") === "on";
+    for (const k of ["min", "max"]) {
+      if (cont) el.removeAttribute(k);
+      else el.setAttribute(k, el.dataset[k]);
+    }
+  };
+  const atualizarBotoes = () => {
+    document.getElementById("vei-add").hidden = form.querySelectorAll(".vei-row").length >= 5; // B49
+  };
+  aplicarCondicoes();
+  aplicarJanelaData();
+  atualizarBotoes();
+  form.addEventListener("input", (e) => {
+    if (e.target.classList.contains("v-placa") || e.target.name === "id_operacao") e.target.value = e.target.value.toUpperCase();
+    aplicarCondicoes();
+    aplicarJanelaData();
+  });
+  form.addEventListener("change", () => { aplicarCondicoes(); aplicarJanelaData(); });
+  document.getElementById("vei-add").addEventListener("click", () => {
+    if (form.querySelectorAll(".vei-row").length >= 5) return;
+    document.getElementById("vei-lista").insertAdjacentHTML("beforeend", veiculoRowHtml());
+    atualizarBotoes();
+  });
+  document.getElementById("trecho-add").addEventListener("click", () => {
+    document.getElementById("trecho-lista").insertAdjacentHTML("beforeend", trechoRowHtml());
+    aplicarCondicoes();
+  });
+  form.addEventListener("click", (e) => {
+    const del = e.target.closest(".vei-del, .trecho-del");
+    if (!del) return;
+    const sel = del.classList.contains("vei-del") ? ".vei-row" : ".trecho-row";
+    if (form.querySelectorAll(sel).length > 1) del.closest(sel).remove();
+    atualizarBotoes();
+  });
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const c = lerCamposCiot(form);
+    const erros = validarCiotAntt(c, { idModo: cfg.id_modo });
+    if (erros.length) return erroModal("ciot-erro", erros.join("\n"));
+    document.getElementById("ciot-erro").hidden = true;
+    btn.disabled = true;
+    try {
+      const r = await apiFetch("/ciot", { method: "POST", headers: { "Idempotency-Key": chave }, body: JSON.stringify(montarCorpoCiotAntt(c)) });
+      chave = novaChaveIdempotencia();
+      closeModal();
+      await loadCiot();
+      if (r.reaproveitado) {
+        showToast("Operação já registrada com esta chave; abrindo o registro existente.", "warning");
+        return openCiotDetail(r.id);
+      }
+      return showToast(`CIOT ${r.numero}${r.ambiente === "homologacao" ? " (HOMOLOGAÇÃO, sem validade jurídica)" : ""}`);
+    } catch (ex) {
+      if (deveRegenerarChave(ex)) chave = novaChaveIdempotencia();
+      const d = ex.data || {};
+      if (d.status === "pendente") {
+        showToast("Sem confirmação da ANTT: consulte a operação antes de emitir de novo.", "warning");
+        closeModal();
+        await loadCiot();
+        return d.id ? openCiotDetail(d.id) : undefined;
+      }
+      // rejeitado / nao_enviado / 400: mensagem da ANTT no modal; o formulário segue aberto
+      // para corrigir e reenviar com o mesmo ID.
+      erroModal("ciot-erro", ex.message + (d.status ? ` (${rotuloStatusCiot(d.status)})` : ""));
+      if (d.status) loadCiot();
+      return undefined;
+    } finally {
+      bloquear();
+    }
+  });
+  return undefined;
+}
+
+function openCiotFormLocal() {
   openModal("Emitir CIOT", `
     <form id="form-ciot" class="form-grid">
       <div class="form-group"><label>Contratante</label><input id="ciot-nome" required></div>

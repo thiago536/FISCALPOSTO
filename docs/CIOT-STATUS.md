@@ -7,7 +7,7 @@ Documento de passagem: outra sessão deve conseguir continuar só com ele + `CLA
 | Estado | Situação | Evidência |
 | --- | --- | --- |
 | TESTADO LOCALMENTE | **Sim** | `npm run test:antt` (10 grupos de payload + fluxo do controller) |
-| TESTADO COM MOCK | **Sim** | `npm run test:antt-mtls` — 40 cenários contra mock HTTPS com mTLS real |
+| TESTADO COM MOCK | **Sim** | `npm run test:antt-mtls` — 50 cenários contra mock HTTPS com mTLS real |
 | Comunicação com homologação ANTT | **Sim (parcial)** | mTLS aceito; respostas reais 297, 207, 220 e 205 (abaixo) |
 | HOMOLOGADO NA ANTT | **Não** | nenhum CIOT gerado com sucesso (código 110) na homologação |
 | PRODUÇÃO VALIDADA | **Não** | nada foi enviado à produção |
@@ -37,6 +37,7 @@ POST /api/ciot ─► ciotController.emitir
 GET  /api/ciot/:id/consulta   ConsultarCIOTGerado: pendente → emitido | nao_registrado
 POST /api/ciot/:id/cancelar   CancelamentoOperacaoTransporte (só "emitido")
 POST /api/ciot/:id/encerrar   EncerramentoOperacaoTransporte (só "emitido")
+GET  /api/ciot/config        provedor/ambiente ativo (usado pelo frontend)
 GET  /api/ciot/transportador  ConsultarSituacaoTransportador
 POST /api/ciot/frota          ConsultarFrotaTransportador
 ```
@@ -125,10 +126,10 @@ Revisor (opus, read-only) achou 5 pontos; 4 corrigidos com teste: 408/429/404 n�
 
 1. **ID oficial**: escolher como obter o `IdOperacaoTransporte` — (a) operador gera no executável oficial da ANTT e informa `id_operacao` (funciona hoje, modo `manual`); ou (b) adaptador que executa a DLL/executável oficial num processo .NET isolado (precisa de aprovação para executar binário baixado e de runtime .NET). Nunca embutir a chave da DLL no código.
 2. **RNTRC e frota reais** da ETC contratada (o CNPJ do certificado não foi encontrado no RNTRC com RNTRC fictício — confirmar se a empresa do certificado é ETC ativa). Sem isso a ANTT rejeita (207/B3/C1).
-3. Primeira declaração 110 em homologação → registrar formato real da resposta de sucesso (nome do campo do ID, tipo do `CodigoVerificador`) e ajustar se divergir.
+3. Primeira declaração 110 em homologação REAL → o formato esperado da resposta de sucesso agora está **guardado como evidência** em `resposta_antt` e `resposta_consulta` de cada CIOT (e na trilha); falta só obter o primeiro 110 real e comparar nome do campo do ID e tipo do `CodigoVerificador`.
 4. Testar em homologação: consulta do CIOT gerado, cancelamento, encerramento, recuperação após falha simulada.
-5. MDF-e: `xml.js`/`focusPayload.js` enviam os 12 primeiros caracteres do CIOT e, no XML local, o CPF do motorista em `infCIOT`; para operação ETC o responsável é o CNPJ da ETC — validar com o MOC do MDF-e antes de produção (fora do escopo desta sessão).
-6. Formulário do frontend não tem os campos ANTT (id_operacao, RNTRC, veículos, origem/destino, carga, datas); no modo `antt` emitir só pela API.
+5. (**parcial**) MDF-e: Q1/Q2 respondidas e implementadas (ver `docs/CIOT-PLANO.md`); resta validar com o MOC do MDF-e antes de produção. Original: `xml.js`/`focusPayload.js` enviam os 12 primeiros caracteres do CIOT e, no XML local, o CPF do motorista em `infCIOT`; para operação ETC o responsável é o CNPJ da ETC — validar com o MOC do MDF-e antes de produção (fora do escopo desta sessão).
+6. **Feita**: formulário do frontend tem os campos ANTT (id_operacao, RNTRC, veículos, origem/destino, carga, datas, contingência), detalhe com ações consultar/encerrar/cancelar/reenviar e botão Verificar RNTRC/frota.
 7. Não implementados: RetificacaoOperacaoTransporte (fracionada), ConsultarExcecao, fluxo completo de contingência (DataDeclaracao original, 168 h).
 8. Produção: só com operação legítima, `NODE_ENV=production`, `ALLOW_PRODUCAO=sim`, `ANTT_AMBIENTE=producao`.
 
@@ -141,11 +142,23 @@ Obter com o responsável da empresa: RNTRC da ETC do certificado e placa(s) auto
 ```bash
 cd backend
 npm run test:antt        # payload + regras + fluxo do controller (sem rede)
-npm run test:antt-mtls   # 40 cenários com mock mTLS (precisa de openssl; Git for Windows serve)
-npm run test:all         # regressão completa (e2e 42, segurança 12, Focus 17, emissor 9, antt, antt-mtls)
+npm run test:antt-mtls   # 50 cenários com mock mTLS (precisa de openssl; Git for Windows serve)
+npm run test:frontend    # 20 testes do frontend CIOT (ciot.js, detalhe, formulário)
+npm run test:all         # regressão completa (e2e 43, segurança 12, Focus 17, emissor 9, antt 12 grupos, antt-mtls 50, frontend 20)
+node scripts/ciot-homologacao.js   # roteiro de homologação real (ver docs/ciot-homologacao.exemplo.json)
+node scripts/dev-antt-mock.js      # app em http://localhost:3002 contra mock ANTT local (banco temporário)
 ```
 
-Resultados em 15/10/2026: todos verdes (e2e 42/42, segurança 12, Focus 17/17, emissor 9/9, antt 10 grupos + fluxo, mTLS 40).
+Mock (`dev-antt-mock.js`): prefixos de `id_operacao` forçam códigos — `E205...` rejeição, `E219...` ID já cadastrado, `E297...` CIOT inexistente. Consulta devolve o mesmo verificador da declaração (`MOCK_DV_CONSULTA` força divergência). A consulta com CIOT diferente do guardado devolve `divergencia: {local, antt}`, mantém o número local e grava na trilha/`resposta_consulta`; o frontend mostra aviso.
+
+### Checklist no navegador (17/10/2026)
+
+- Modo local: emitir e cancelar — OK.
+- Mock ANTT: emissão pelo formulário (110) — OK; rejeição 205 exibida no modal, novo Idempotency-Key a cada reenvio — OK; 219 → pendente sem CIOT — OK; consulta — OK; encerrar com peso — OK; cancelar com motivo — OK; Verificar RNTRC/frota — OK.
+- Fluxo de confirmação do 219 (`?confirmar=1`) coberto só pelos testes automatizados, pois o mock força 219 também na consulta.
+- Achados corrigidos: selo ANTT some em encerrado/cancelado; textarea sem estilo; aviso de divergência na consulta.
+
+Resultados em 17/10/2026: todos verdes (e2e 43/43, segurança 12, Focus 17/17, emissor 9/9, antt 12 grupos, mTLS 50, frontend 20).
 
 ## Arquivos alterados nesta sessão
 
@@ -153,6 +166,6 @@ Resultados em 15/10/2026: todos verdes (e2e 42/42, segurança 12, Focus 17/17, e
 - `backend/src/services/anttPayload.js` — B111/B109/B110, B115, B27, B56, B22/B21/B30, B49, B118, B119, encerramento B57/B62/B65/B44, `CodigoPagamento` sem perda de dígitos.
 - `backend/src/controllers/mdfeController.js` — `placasDoCiot`: CIOT da ANTT usa só as placas declaradas (achado da revisão).
 - `backend/src/controllers/ciotController.js` — contratado = empresa; DV estrito; 219 → pendente; 297/220 → `nao_registrado` com margem; 222/251 refletidos; travas; Idempotency-Key; veículos/datas persistidos.
-- `frontend/src/app.js` — lista CIOT mostra SIMULADO/ANTT e "ID op. … (sem CIOT)" para pendente; toast avisa simulado; cores de status.
+- `frontend/src/app.js` — lista CIOT mostra SIMULADO/ANTT; selo ANTT por provider+status; aviso de divergência na consulta e "ID op. … (sem CIOT)" para pendente; toast avisa simulado; cores de status.
 - `backend/tests/antt-payload.test.js`, `backend/tests/antt-mtls.test.js` — testes novos e dados de teste corrigidos para as regras do DCS (ex.: origem município × destino CEP violava B111).
 - `docs/CIOT-STATUS.md`, `CLAUDE.md`.

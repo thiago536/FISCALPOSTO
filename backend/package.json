@@ -12,7 +12,8 @@
     "test:antt-mtls": "node tests/antt-mtls.test.js",
     "test:seguranca": "node tests/seguranca-producao.test.js",
     "test:focus": "node tests/e2e-focus.js",
-    "test:all": "npm test && npm run test:seguranca && npm run test:focus && npm run test:emissor && npm run test:antt && npm run test:antt-mtls"
+    "test:frontend": "node tests/frontend-ciot.test.js",
+    "test:all": "npm test && npm run test:seguranca && npm run test:focus && npm run test:emissor && npm run test:antt && npm run test:antt-mtls && npm run test:frontend"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

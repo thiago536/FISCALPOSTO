@@ -1,4 +1,4 @@
-const { escapeXml, money, pad, onlyDigits, dhEmi } = require("../utils/fiscal");
+const { escapeXml, money, pad, onlyDigits, dhEmi, responsavelCiot } = require("../utils/fiscal");
 
 function infNfe(emp, nfe, itens, chave) {
   const dh = dhEmi(nfe.emitido_em);
@@ -216,12 +216,15 @@ function infMdfe(emp, mdfe, condutores, percurso, docs, ciot, chave) {
   const docsXml = docs.map((d) => d.tipo === "cte"
     ? `<infCTe><chCTe>${d.chave}</chCTe></infCTe>`
     : `<infNFe><chNFe>${d.chave}</chNFe></infNFe>`).join("");
+  // Responsável pelo CIOT = ETC (CNPJ da empresa no modo simulado); ver responsavelCiot.
+  const resp = ciot ? responsavelCiot(ciot, emp) : null;
+  const respCiotXml = resp ? (resp.tipo === "CPF" ? `<CPF>${resp.doc}</CPF>` : `<CNPJ>${pad(resp.doc, 14)}</CNPJ>`) : "";
   const ciotXml = ciot ? `
       <infANTT>
         <RNTRC>${escapeXml(mdfe.rntrc || "")}</RNTRC>
         <infCIOT>
           <CIOT>${escapeXml(String(ciot.numero).slice(0, 12))}</CIOT>
-          <CPF>${onlyDigits(ciot.motorista_cpf || "00000000000")}</CPF>
+          ${respCiotXml}
         </infCIOT>
         <infPag>
           <xNome>${escapeXml(ciot.contratante_nome)}</xNome>

@@ -523,6 +523,9 @@ async function main() {
     assert.ok(xml.includes(`<chCTe>${cte.chave}</chCTe>`), "chave do CT-e ausente no MDF-e");
     assert.ok(xml.includes("<infCIOT>"), "grupo infCIOT ausente");
     assert.ok(xml.includes(`<CIOT>${ciot.numero}</CIOT>`), "número do CIOT ausente no infANTT");
+    // Responsável pelo CIOT é a ETC (contratado = empresa), não o motorista nem o contratante.
+    const cnpjEmpresa = onlyDigits(need(state.empresa, "empresa").cnpj);
+    assert.ok(new RegExp(`<infCIOT>\\s*<CIOT>[^<]+</CIOT>\\s*<CNPJ>${cnpjEmpresa}</CNPJ>`).test(xml), "infCIOT sem CNPJ da ETC");
     assert.ok(xml.includes(`<RNTRC>${RNTRC}</RNTRC>`), "RNTRC ausente");
     assert.ok(xml.includes(`<CPF>${onlyDigits(CONDUTOR.cpf)}</CPF>`), "CPF do condutor ausente");
     assert.ok(xml.includes(`<placa>${PLACA}</placa>`), "placa ausente no veicTracao");
@@ -538,6 +541,9 @@ async function main() {
     assert.strictEqual(r.status, 200, `status ${r.status}: ${r.text}`);
     assert.ok(r.body.ciot, "CIOT não veio agregado no detalhe");
     assert.strictEqual(r.body.ciot.numero, ciot.numero, "número do CIOT divergente");
+    for (const k of ["payload_declaracao", "entrada_antt", "resposta_antt", "resposta_consulta"]) {
+      assert.ok(!(k in r.body.ciot), `ciot do detalhe do MDF-e vaza ${k}`);
+    }
     assert.strictEqual(r.body.documentos.length, 2, "deveriam vir 2 documentos vinculados");
     assert.strictEqual(r.body.condutores.length, 1, "deveria vir 1 condutor");
     assert.strictEqual(r.body.percurso.length, 1, "deveria vir 1 UF de percurso");
@@ -665,6 +671,13 @@ async function main() {
   await test("número do CIOT segue o padrão ANTT de 12 dígitos", async () => {
     const ciot = need(state.ciot, "CIOT emitido");
     assert.ok(/^[0-9]{12}$/.test(ciot.numero), `número fora do padrão [0-9]{12}: ${ciot.numero}`);
+  });
+
+  await test("config do CIOT no modo local", async () => {
+    need(state.token, "token de login");
+    const r = await req("GET", "/api/ciot/config");
+    assert.strictEqual(r.status, 200, `status ${r.status}: ${r.text}`);
+    assert.strictEqual(r.body.provider, "local");
   });
 
   await test("cancelar o mesmo CIOT duas vezes devolve 400", async () => {
